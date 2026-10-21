@@ -148,10 +148,17 @@ export class HockeyScene extends BaseGameScene {
       ctx.beginPath(); ctx.moveTo(a.sx, a.sy); ctx.lineTo(b.sx, b.sy); ctx.lineTo(c.sx, c.sy); ctx.lineTo(d.sx, d.sy); ctx.closePath(); ctx.clip();
       paintAsphalt(ctx, 0, horizon, W, H - horizon, 13, '#6f6c68');
       // perspective-scaled cracks/patches for depth
-      for (let i = 0; i < 40; i++) {
+      for (let i = 0; i < 26; i++) {
         const p = pr.project((r() - 0.5) * cfg.rinkW, 0, r() * cfg.rinkL);
-        ctx.fillStyle = r() > 0.5 ? 'rgba(0,0,0,0.12)' : 'rgba(255,255,255,0.06)';
-        ctx.beginPath(); ctx.ellipse(p.sx, p.sy, (0.3 + r() * 0.6) * p.scale, (0.08 + r() * 0.12) * p.scale, 0, 0, Math.PI * 2); ctx.fill();
+        ctx.fillStyle = r() > 0.5 ? 'rgba(0,0,0,0.06)' : 'rgba(255,255,255,0.05)';
+        ctx.beginPath(); ctx.ellipse(p.sx, p.sy, (0.2 + r() * 0.4) * p.scale, (0.05 + r() * 0.08) * p.scale, 0, 0, Math.PI * 2); ctx.fill();
+      }
+      // grass creeping into the cracks, like the real driveway
+      ctx.strokeStyle = 'rgba(95,150,60,0.5)';
+      for (let z = 1; z < cfg.rinkL; z += 2 + r() * 2.5) {
+        const a = pr.project(-cfg.rinkW / 2 + r(), 0, z), b = pr.project(cfg.rinkW / 2 - r(), 0, z + (r() - 0.5) * 0.4);
+        ctx.lineWidth = Math.max(1, 0.025 * a.scale);
+        ctx.beginPath(); ctx.moveTo(a.sx, a.sy); ctx.lineTo(b.sx, b.sy); ctx.stroke();
       }
       ctx.restore();
       // chalk side lines + goal lines + centre line

@@ -11,8 +11,10 @@ Working notes for the Sports at Academy Hill build. Updated as work lands.
 - Championship progression logic with clinch announcement and final celebration. Tests.
 - Headless smoke script (scripts/smoke.mjs) and a derby full-match playthrough script.
 
+- Game 4 Wrestling, Game 5 Hockey, Game 6 Football, Game 7 Darts: complete with pure rules/sim modules, AI, touch controls, both orientations, tests, and headless screenshots reviewed.
+
 ## In progress
-- Games 2-7 (HORSE, billiards, wrestling, hockey, football, darts) are being built in parallel in their own folders with pure rules modules and tests.
+- Game 2 HORSE and Game 3 Billiards (being built in their own folders with pure rules modules and tests).
 
 ## Remaining
 - Integrate all seven games, run the full test suite, production build and browser smoke test for every game in both orientations.

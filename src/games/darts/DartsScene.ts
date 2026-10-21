@@ -171,8 +171,8 @@ export class DartsScene extends BaseGameScene {
       }
       // pictures on the wall (landscape only; the cabinet fills the wall in portrait)
       if (!P) {
-        paintPoster(ctx, 120, 170, 150, 110, '#6b8e4e', 'HILL');
-        paintPoster(ctx, W - 300, 560, 120, 90, '#4e6b8e', 'TEAM');
+        paintPoster(ctx, 120, 170, 150, 110, '#6b8e4e', 'ACADEMY HILL');
+        paintPoster(ctx, W - 300, 560, 120, 90, '#4e6b8e', 'GO TEAM');
       }
       // Right: window with autumn trees + curtains, lamp beneath
       const winW = P ? 190 : 300, winH = P ? 150 : 260;
