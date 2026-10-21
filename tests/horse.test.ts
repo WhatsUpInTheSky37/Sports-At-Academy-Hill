@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { applyShot, chooseSpot, createHorse, lettersDisplay, MAX_LETTERS } from '../src/games/horse/rules';
-import { DEFAULT_SHOT, SPOTS, simulateShot } from '../src/games/horse/shot';
+import { DEFAULT_SHOT, FLICK, SPOTS, flickToShot, powerFromOffset, shotNoise, simulateShot, simulateShotPower } from '../src/games/horse/shot';
 
 describe('HORSE rules', () => {
   it('a made set shot puts the opponent on the clock from the same spot', () => {
@@ -103,5 +103,32 @@ describe('HORSE shot physics', () => {
     expect(r.points[0].y).toBeCloseTo(DEFAULT_SHOT.releaseHeight, 5);
     const apex = Math.max(...r.points.map((p) => p.y));
     expect(apex).toBeGreaterThan(DEFAULT_SHOT.rimHeight);
+  });
+
+  it('power-factor and timing-offset shots agree', () => {
+    const a = simulateShot(SPOTS[5], 150, 0.2, 0, DEFAULT_SHOT);
+    const b = simulateShotPower(SPOTS[5], powerFromOffset(150, DEFAULT_SHOT), 0.2, 0, DEFAULT_SHOT);
+    expect(b.points.length).toBe(a.points.length);
+    expect(b.made).toBe(a.made);
+    expect(b.timing).toBe('late');
+  });
+
+  it('a flick of the sweet length is a perfect-power shot; shorter is short, longer is long', () => {
+    const W = 1080, H = 1920;
+    const sweet = flickToShot(0, -FLICK.sweetPull * H, W, H);
+    expect(sweet.powerFactor).toBeCloseTo(1, 5);
+    expect(sweet.aimX).toBe(0);
+    expect(flickToShot(0, -FLICK.sweetPull * H * 0.5, W, H).powerFactor).toBeCloseTo(0.5, 5);
+    expect(flickToShot(0, -H, W, H).powerFactor).toBeCloseTo(FLICK.maxPull / FLICK.sweetPull, 5);
+    expect(flickToShot(0, 200, W, H).powerFactor).toBe(0);
+    expect(flickToShot(W * FLICK.lateralPull, -H * 0.3, W, H).aimX).toBeCloseTo(1, 5);
+    expect(flickToShot(-W, -H * 0.3, W, H).aimX).toBe(-1);
+    expect(simulateShotPower(SPOTS[0], sweet.powerFactor, sweet.aimX, 0, DEFAULT_SHOT).made).toBe(true);
+  });
+
+  it('shot noise grows with distance from the hoop', () => {
+    const close = shotNoise(SPOTS[7]), deep = shotNoise(SPOTS[6]);
+    expect(deep.powerSd).toBeGreaterThan(close.powerSd);
+    expect(deep.aimSd).toBeGreaterThan(close.aimSd);
   });
 });
