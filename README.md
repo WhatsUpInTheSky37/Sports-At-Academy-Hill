@@ -1,6 +1,6 @@
 # Sports at Academy Hill
 
-Seven homemade sports from one childhood afternoon: Backyard Home Run Derby, Driveway HORSE, Basement Billiards, Basement Wrestling, Driveway Hockey, Two-on-Two Football and Darts, starring Will, Vinnie, Bryan and Ben. Built with TypeScript, Vite and Phaser 3. No backend, no accounts, nothing to pay for.
+Seven homemade sports from one childhood afternoon: Backyard Home Run Derby, Driveway HORSE, Basement Billiards, Basement Wrestling, Driveway Hockey Shootout, Two-on-Two Football and Darts, starring Will, Vinnie, Bryan and Ben. Built with TypeScript, Vite and Phaser 3. No backend, no accounts, nothing to pay for.
 
 ## Installation and local startup
 
@@ -43,7 +43,7 @@ The smoke and playthrough scripts open `?renderer=canvas`, a URL switch that for
 ## Playing
 
 - **Orientation:** plays in landscape or portrait. The layout adapts; on a phone just hold it however you like.
-- **Modes:** 1 player vs CPU (Easy / Normal / Hard) or 2 players on one device. Derby, HORSE, billiards and darts are pass-and-play (touch or keyboard). Wrestling, hockey and football are simultaneous, so local two-player needs a physical keyboard; the setup screen says so.
+- **Modes:** 1 player vs CPU (Easy / Normal / Hard) or 2 players on one device. Derby, HORSE, billiards, hockey and darts are pass-and-play (touch or keyboard). Wrestling and football are simultaneous, so local two-player needs a physical keyboard; the setup screen says so.
 - **Characters:** pick any two of Will, Vinnie, Bryan and Ben for either side.
 - **Touch:** every game has on-screen controls in single player (joystick + buttons, or drag-to-aim + big action buttons).
 - **Pause (II / Esc):** resume, restart, How to Play, sound and music toggles, main menu. Results screen: rematch or menu.
@@ -58,7 +58,7 @@ The smoke and playthrough scripts open `?renderer=canvas`, a URL switch that for
 | HORSE | Click a chalk spot, A/D fine aim, hold/release SPACE for power | same, turns alternate | Tap spot, drag to aim, hold/release SHOOT |
 | Billiards | Drag to aim, A/D fine aim, SPACE shoot | same, turns alternate | Drag to aim, drag/hold power bar |
 | Wrestling | WASD move, F grapple/pin, G shove/takedown, H escape | Arrows, `,` grapple/pin, `.` shove, `/` escape | Stick + GRAB / SHOVE / ESC |
-| Hockey | WASD skate, F shoot (hold for power), G poke check | Arrows, `,` shoot, `.` poke | Stick + SHOOT / POKE |
+| Hockey | WASD skate, click the net to shoot (F / SPACE: open corner) | Arrows skate, `,` or ENTER shoot (turns alternate) | Left stick to skate, tap the net where you want the puck |
 | Football | WASD move, F snap/pass, G switch player | Arrows, `,` snap/pass, `.` switch | Stick + SNAP/PASS / SWITCH |
 | Darts | Mouse/WASD aim, SPACE/F throw | same, turns alternate | Drag to aim, tap THROW |
 
@@ -68,7 +68,7 @@ The smoke and playthrough scripts open `?renderer=canvas`, a URL switch that for
 - **HORSE:** setter picks a spot and shoots; a make must be matched from the same spot or the matcher earns a letter. Setter miss hands over the setter role. Five letters loses.
 - **Billiards:** casual eight-ball (open table after the break, groups on the first legal pocketed ball, fouls give ball in hand anywhere, called pocket for the 8, 8 on the break is respotted, illegal break lets the opponent accept or rerack). No jump/masse shots, no three-foul rule.
 - **Wrestling:** cartoon grappling in a couch-cushion ring. Three-count pins with a timed escape window (no mashing). Stepping out resets both wrestlers.
-- **Hockey:** one on one, no goalies, side boundaries, goals only through the goal mouth, first to 5.
+- **Hockey:** a shootout. Five attempts each, alternating; the shooter skates in from the top of the driveway with an 8-second shot clock and taps the net where the puck should go. Aim error grows with distance and skating speed; the goalie slides to cut the angle, reacts to the shot (faster on harder difficulty) and can poke the puck away inside the crease. Regulation ends early when the trailing player cannot catch up; ties go to sudden death. The view zooms toward the net as the shooter closes in.
 - **Football:** 2v2 touch, 40-yard field plus end zones, 4 downs and no first downs, TD 6, no extra points, safety 2, one forward pass per play from behind the line, interceptions returnable, first to 30. No fumbles, blocking, kicking or penalties. Field size, winning score, touch distance and speeds are in `src/games/football/rules.ts`.
 - **Darts:** 301 straight-in, double-out (inner bull counts). Bust restores the start-of-turn score. Score comes from the actual impact coordinates on a standard board.
 
