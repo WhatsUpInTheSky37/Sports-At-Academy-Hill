@@ -20,6 +20,12 @@ npm run preview    # serve dist/ locally on http://localhost:4173
 
 `dist/` is a static site with relative asset paths (`base: './'`), so it can be dropped onto GitHub Pages, Netlify, an S3 bucket or any static host. There is no server component.
 
+**GitHub Pages (automatic):** `.github/workflows/deploy-pages.yml` builds and publishes `dist/` on every push to `main`. One-time setup: in the repository **Settings → Pages**, set **Source** to **GitHub Actions**. The game is then served at
+
+```
+https://whatsupinthesky37.github.io/Sports-At-Academy-Hill/
+```
+
 ## Tests and smoke checks
 
 ```bash
