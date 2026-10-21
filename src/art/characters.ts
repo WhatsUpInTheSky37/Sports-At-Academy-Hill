@@ -7,7 +7,8 @@ export const FRAME = 220;
 
 export type BasePoseName =
   | 'idle0' | 'idle1' | 'run0' | 'run1' | 'run2' | 'run3' | 'swing0' | 'swing1' | 'swing2'
-  | 'shoot0' | 'shoot1' | 'throw0' | 'throw1' | 'cheer0' | 'cheer1' | 'sad' | 'grapple' | 'down' | 'crouch' | 'push' | 'dizzy';
+  | 'shoot0' | 'shoot1' | 'throw0' | 'throw1' | 'cheer0' | 'cheer1' | 'sad' | 'grapple' | 'down' | 'crouch' | 'push' | 'dizzy'
+  | 'bat0' | 'bat1' | 'bat2' | 'bat3';
 /** Every pose also exists as a back view (`back-<pose>`) for behind-the-player camera angles. */
 export type PoseName = BasePoseName | `back-${BasePoseName}`;
 
@@ -46,7 +47,43 @@ const BASE_POSES: Record<BasePoseName, Pose> = {
   crouch: { lArm: 30, rArm: 30, lBend: 70, rBend: 70, lLeg: 25, rLeg: -25, face: 'focus', crouch: 0.4 },
   push: { lArm: 100, rArm: 100, lBend: 10, rBend: 10, lLeg: 30, rLeg: -30, face: 'shout', lean: 12, crouch: 0.25, armsFront: true },
   dizzy: { lArm: 20, rArm: 25, lLeg: 10, rLeg: -10, face: 'dizzy', lean: -5 },
+  // Right-handed batter (seen from behind in the derby): stance with the bat over the right
+  // shoulder, a short stride/load, contact with arms extended, and the wrap-around follow-through.
+  bat0: { lArm: 95, rArm: -40, lBend: 0, rBend: -130, lLeg: 22, rLeg: -18, face: 'focus', lean: -3, crouch: 0.28, armsFront: true },
+  bat1: { lArm: 100, rArm: -45, lBend: 0, rBend: -125, lLeg: 30, rLeg: -14, face: 'focus', lean: -7, crouch: 0.34, armsFront: true },
+  bat2: { lArm: 92, rArm: -92, lBend: 0, rBend: 0, lLeg: 24, rLeg: -24, face: 'shout', lean: 5, crouch: 0.22, armsFront: true },
+  bat3: { lArm: 30, rArm: 90, lBend: 150, rBend: 0, lLeg: 26, rLeg: -28, face: 'grin', lean: 12, crouch: 0.14, armsFront: true },
 };
+
+/**
+ * Frame-local hand positions (pixels inside the FRAME x FRAME cell) for a pose, using the same limb
+ * geometry as drawCharacterFrame. Lets scenes attach held items (a bat) to the hands exactly.
+ */
+export function handPositions(poseName: PoseName, facing: 1 | -1 = 1): { left: { x: number; y: number }; right: { x: number; y: number } } {
+  const pose = POSES[poseName];
+  const cx = 110;
+  const crouch = pose.crouch ?? 0;
+  const lift = -(pose.jump ?? 0);
+  const baseFeet = 206 + lift;
+  const hipY = baseFeet - 50 + crouch * 22;
+  const torsoTop = hipY - 66 + crouch * 6;
+  const shoulderY = torsoTop + 12;
+  const hand = (sx: number, angleDeg: number, bendDeg: number, side: number) => {
+    const a = deg(angleDeg) * side;
+    const b = deg(bendDeg) * side;
+    const ux = sx + Math.sin(a) * 30, uy = shoulderY + Math.cos(a) * 30;
+    return { x: ux + Math.sin(a + b) * 28, y: uy + Math.cos(a + b) * 28 };
+  };
+  let left = hand(cx - 32, pose.lArm, pose.lBend ?? 0, 1);
+  let right = hand(cx + 32, pose.rArm, pose.rBend ?? 0, -1);
+  if (pose.rotate) {
+    const rot = deg(pose.rotate);
+    const r = (p: { x: number; y: number }) => { const dx = p.x - 110, dy = p.y - 110; return { x: 110 + dx * Math.cos(rot) - dy * Math.sin(rot), y: 110 + dx * Math.sin(rot) + dy * Math.cos(rot) }; };
+    left = r(left); right = r(right);
+  }
+  if (facing === -1) { left = { x: 220 - left.x, y: left.y }; right = { x: 220 - right.x, y: right.y }; }
+  return { left, right };
+}
 
 export const POSES: Record<PoseName, Pose> = Object.fromEntries([
   ...Object.entries(BASE_POSES),

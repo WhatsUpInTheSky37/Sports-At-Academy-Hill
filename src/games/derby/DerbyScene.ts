@@ -4,7 +4,7 @@ import { GAME_H, GAME_W, THEME } from '../../core/constants';
 import { Projector } from '../../core/projection';
 import { Audio } from '../../core/audio';
 import { Meter, displayStyle, textStyle, makeButton, impact, confetti, shake } from '../../core/ui';
-import { CharacterSprite } from '../../art/characters';
+import { CharacterSprite, FRAME, handPositions, type PoseName } from '../../art/characters';
 import { createCanvas, paintCypress, paintHaze, paintLawnHD, paintPineHD, paintSkyHD, paintTreeHD, paintVignette, rng } from '../../art/environment';
 import { DEFAULT_BATTING, aiSwing, computeContact, simulateFlight, type BattingConfig, type Flight, type Contact } from './batting';
 import { DEFAULT_DERBY_RULES, acknowledgeSwitch, applyOutcome, createDerby, type DerbyState } from './rules';
@@ -39,9 +39,11 @@ export class DerbyScene extends BaseGameScene {
   private batter!: CharacterSprite;
   private pitcher!: CharacterSprite;
   private bat!: Phaser.GameObjects.Image;
+  private swingArc!: Phaser.GameObjects.Graphics;
   private ball!: Phaser.GameObjects.Image;
   private ballShadow!: Phaser.GameObjects.Image;
   private trail!: Phaser.GameObjects.Graphics;
+  private boardTexts: { name: Phaser.GameObjects.Text; num: Phaser.GameObjects.Text; outs: Phaser.GameObjects.Text }[] | null = null;
   private trailPts: { x: number; y: number; r: number }[] = [];
   private reticle!: Phaser.GameObjects.Container;
   private aim = { x: 0, y: 0 }; // px offsets
@@ -83,12 +85,13 @@ export class DerbyScene extends BaseGameScene {
     this.pitcher.setDepth(100).idle();
     const plate = this.proj.project(0, 0, 0);
     this.plateScreen = { x: plate.sx, y: plate.sy };
-    const bx = P ? W * 0.70 : W * 0.63;
-    const by = Math.min(this.fieldBottom + 40, plate.sy + (P ? 150 : 120));
+    const bx = plate.sx - (P ? 230 : 300);
+    const by = plate.sy + (P ? 60 : 40);
     this.batter = new CharacterSprite(this, bx, by, this.players[0].character, P ? 1.45 : 1.6);
-    this.batter.setDepth(500).setPose('back-swing0');
+    this.batter.setDepth(500).setPose('back-bat0');
     this.bat = this.add.image(0, 0, 'bat').setOrigin(0.05, 0.5).setDepth(501).setScale(P ? 1.3 : 1.45);
-    this.positionBat('swing0');
+    this.swingArc = this.add.graphics().setDepth(499);
+    this.positionBat('bat0');
     // Ball
     this.ballShadow = this.add.image(0, 0, 'shadow').setDepth(90).setVisible(false);
     this.trail = this.add.graphics().setDepth(399);
@@ -98,6 +101,7 @@ export class DerbyScene extends BaseGameScene {
     this.aimCenter = { x: c.sx, y: c.sy };
     this.reticle = this.buildReticle().setDepth(600);
     this.preview = this.add.graphics().setDepth(80);
+    this.buildScoreboardText();
     // Controls panel
     this.buildControls();
     this.setTurn(0);
@@ -195,10 +199,10 @@ export class DerbyScene extends BaseGameScene {
       ctx.beginPath(); ctx.moveTo(bk.sx - 0.27 * bs, bk.sy - 0.45 * bs); ctx.lineTo(bk.sx + 0.27 * bs, bk.sy - 0.45 * bs); ctx.lineTo(bk.sx + 0.23 * bs, bk.sy); ctx.lineTo(bk.sx - 0.23 * bs, bk.sy); ctx.closePath(); ctx.fill();
       ctx.strokeStyle = 'rgba(0,0,0,0.35)'; ctx.lineWidth = 1.5; ctx.stroke();
       for (let i = 0; i < 6; i++) { ctx.fillStyle = '#f7f3e8'; ctx.beginPath(); ctx.arc(bk.sx - 0.16 * bs + (i % 3) * 0.16 * bs, bk.sy - 0.46 * bs - Math.floor(i / 3) * 0.08 * bs, 0.065 * bs, 0, Math.PI * 2); ctx.fill(); ctx.strokeStyle = 'rgba(180,40,40,0.6)'; ctx.lineWidth = 1; ctx.stroke(); }
-      // pitcher's rubber
-      const pm = pr.project(DERBY_VISUAL.pitcherX, 0, DERBY_VISUAL.pitcherZ + 0.6);
-      ctx.fillStyle = 'rgba(255,255,255,0.85)';
-      ctx.fillRect(pm.sx - 0.3 * pm.scale, pm.sy - 2, 0.6 * pm.scale, 4);
+      // the well cap: a short steel casing that sticks up out of the lawn; the pitcher throws from just in front of it
+      this.paintWellCap(ctx, DERBY_VISUAL.pitcherX + 0.9, DERBY_VISUAL.pitcherZ + 1.0);
+      // the homemade scoreboard standing at the right tree line
+      this.paintScoreboard(ctx);
       // boundary label over the back hedge
       const lbl = pr.project(0, 3.2, cfg.boundaryZ + 1);
       ctx.fillStyle = 'rgba(13,31,16,0.8)';
@@ -213,6 +217,103 @@ export class DerbyScene extends BaseGameScene {
       this.textures.addCanvas(key, canvas);
     }
     this.add.image(W / 2, H / 2, key).setDepth(0);
+  }
+
+  /** Steel well casing cap (about 15 cm across, knee high) with a domed lid. */
+  private paintWellCap(ctx: CanvasRenderingContext2D, x: number, z: number): void {
+    const pr = this.proj;
+    const base = pr.project(x, 0, z);
+    const top = pr.project(x, 0.55, z);
+    const s = base.scale;
+    const rw = 0.11 * s;
+    ctx.fillStyle = 'rgba(0,0,0,0.3)';
+    ctx.beginPath(); ctx.ellipse(base.sx + rw * 0.9, base.sy + 1, rw * 1.8, rw * 0.5, 0, 0, Math.PI * 2); ctx.fill();
+    const g = ctx.createLinearGradient(base.sx - rw, 0, base.sx + rw, 0);
+    g.addColorStop(0, '#5a5f66'); g.addColorStop(0.35, '#b8bec6'); g.addColorStop(0.6, '#8b9199'); g.addColorStop(1, '#3f4349');
+    ctx.fillStyle = g;
+    ctx.fillRect(base.sx - rw, top.sy, rw * 2, base.sy - top.sy);
+    ctx.fillStyle = '#2f3338';
+    ctx.beginPath(); ctx.ellipse(base.sx, base.sy, rw, rw * 0.35, 0, 0, Math.PI); ctx.fill();
+    const lid = ctx.createRadialGradient(base.sx - rw * 0.3, top.sy - rw * 0.4, rw * 0.1, base.sx, top.sy - rw * 0.2, rw * 1.4);
+    lid.addColorStop(0, '#d7dce2'); lid.addColorStop(0.6, '#8d939b'); lid.addColorStop(1, '#4a4f55');
+    ctx.fillStyle = lid;
+    ctx.beginPath(); ctx.ellipse(base.sx, top.sy - rw * 0.2, rw * 1.2, rw * 0.55, 0, 0, Math.PI * 2); ctx.fill();
+    ctx.strokeStyle = 'rgba(0,0,0,0.45)'; ctx.lineWidth = 1.5; ctx.stroke();
+    ctx.fillStyle = 'rgba(0,0,0,0.35)';
+    ctx.beginPath(); ctx.ellipse(base.sx + rw * 0.5, top.sy - rw * 0.3, rw * 0.18, rw * 0.1, 0, 0, Math.PI * 2); ctx.fill();
+    // worn grass patch where everyone stands to pitch
+    ctx.fillStyle = 'rgba(140,110,70,0.35)';
+    const pm = pr.project(x, 0, z - 1.1);
+    ctx.beginPath(); ctx.ellipse(pm.sx, pm.sy, 0.5 * pm.scale, 0.18 * pm.scale, 0, 0, Math.PI * 2); ctx.fill();
+  }
+
+  /** World position of the homemade plywood scoreboard (right tree line). */
+  private scoreboardSpec(): { x: number; z: number; w: number; h: number; postH: number } {
+    return this.portrait
+      ? { x: this.cfg.yardRight - 3.3, z: 34, w: 5.5, h: 2.8, postH: 1.0 }
+      : { x: this.cfg.yardRight - 3.3, z: 16, w: 5.5, h: 2.8, postH: 1.0 };
+  }
+
+  private paintScoreboard(ctx: CanvasRenderingContext2D): void {
+    const pr = this.proj;
+    const sb = this.scoreboardSpec();
+    const bl = pr.project(sb.x - sb.w / 2, sb.postH, sb.z), br = pr.project(sb.x + sb.w / 2, sb.postH, sb.z);
+    const tl = pr.project(sb.x - sb.w / 2, sb.postH + sb.h, sb.z), tr = pr.project(sb.x + sb.w / 2, sb.postH + sb.h, sb.z);
+    const s = bl.scale;
+    void br;
+    for (const px of [sb.x - sb.w / 2 + 0.3, sb.x + sb.w / 2 - 0.3]) {
+      const g0 = pr.project(px, 0, sb.z), g1 = pr.project(px, sb.postH + sb.h - 0.3, sb.z);
+      ctx.fillStyle = 'rgba(0,0,0,0.3)';
+      ctx.beginPath(); ctx.ellipse(g0.sx + 0.2 * s, g0.sy + 1, 0.25 * s, 0.08 * s, 0, 0, Math.PI * 2); ctx.fill();
+      const pg = ctx.createLinearGradient(g0.sx - 0.07 * s, 0, g0.sx + 0.07 * s, 0);
+      pg.addColorStop(0, '#8a6a46'); pg.addColorStop(0.5, '#b58b5c'); pg.addColorStop(1, '#5c4328');
+      ctx.fillStyle = pg;
+      ctx.fillRect(g0.sx - 0.07 * s, g1.sy, 0.14 * s, g0.sy - g1.sy);
+    }
+    ctx.fillStyle = 'rgba(0,0,0,0.35)';
+    ctx.fillRect(tl.sx + 4, tl.sy + 6, tr.sx - tl.sx, bl.sy - tl.sy);
+    const wg = ctx.createLinearGradient(0, tl.sy, 0, bl.sy);
+    wg.addColorStop(0, '#f1e3b8'); wg.addColorStop(1, '#d9c48f');
+    ctx.fillStyle = wg;
+    ctx.fillRect(tl.sx, tl.sy, tr.sx - tl.sx, bl.sy - tl.sy);
+    ctx.strokeStyle = 'rgba(70,45,20,0.45)'; ctx.lineWidth = 1;
+    for (let y = tl.sy + 6; y < bl.sy; y += 9) { ctx.beginPath(); ctx.moveTo(tl.sx + 2, y); ctx.lineTo(tr.sx - 2, y + 1); ctx.stroke(); }
+    ctx.strokeStyle = '#1d4426'; ctx.lineWidth = Math.max(2, 0.08 * s);
+    ctx.strokeRect(tl.sx + 0.08 * s, tl.sy + 0.08 * s, tr.sx - tl.sx - 0.16 * s, bl.sy - tl.sy - 0.16 * s);
+    ctx.fillStyle = '#1d4426';
+    ctx.fillRect(tl.sx + 0.08 * s, tl.sy + 0.08 * s, tr.sx - tl.sx - 0.16 * s, 0.42 * s);
+    ctx.fillStyle = '#f5c518';
+    ctx.font = `bold ${Math.max(9, 0.26 * s)}px "Arial Black", Arial`;
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillText('ACADEMY HILL DERBY', (tl.sx + tr.sx) / 2, tl.sy + 0.29 * s);
+    ctx.strokeStyle = 'rgba(29,68,38,0.6)'; ctx.lineWidth = Math.max(1, 0.04 * s);
+    ctx.beginPath(); ctx.moveTo((tl.sx + tr.sx) / 2, tl.sy + 0.55 * s); ctx.lineTo((tl.sx + tr.sx) / 2, bl.sy - 0.1 * s); ctx.stroke();
+  }
+
+  /** Dynamic scoreboard numbers, projected onto the board. */
+  private buildScoreboardText(): void {
+    const pr = this.proj;
+    const sb = this.scoreboardSpec();
+    const s = pr.project(sb.x, sb.postH, sb.z).scale;
+    const mk = (size: number, color: string) => this.add.text(0, 0, '', displayStyle(Math.max(9, size * s), color, { strokeThickness: 0, align: 'center' })).setOrigin(0.5).setDepth(85);
+    this.boardTexts = [0, 1].map((slot) => {
+      const dx = slot === 0 ? -sb.w / 4 : sb.w / 4;
+      const px = pr.project(sb.x + dx, sb.postH + sb.h - 0.75, sb.z);
+      const hr = pr.project(sb.x + dx, sb.postH + sb.h - 1.35, sb.z);
+      const ol = pr.project(sb.x + dx, sb.postH + 0.3, sb.z);
+      return { name: mk(0.24, '#1d4426').setPosition(px.sx, px.sy), num: mk(0.62, '#b3261e').setPosition(hr.sx, hr.sy), outs: mk(0.2, '#1d4426').setPosition(ol.sx, ol.sy) };
+    });
+  }
+
+  private refreshScoreboard(): void {
+    if (!this.boardTexts) return;
+    const st = this.state;
+    for (const slot of [0, 1] as const) {
+      const t = this.boardTexts[slot];
+      t.name.setText(this.name(slot).toUpperCase());
+      t.num.setText(String(st.scores[slot]));
+      t.outs.setText(`OUTS ${Math.min(st.outs[slot], st.outsLimit)}/${st.outsLimit}`);
+    }
   }
 
   private buildReticle(): Phaser.GameObjects.Container {
@@ -318,17 +419,38 @@ export class DerbyScene extends BaseGameScene {
 
   private isHumanBatting(): boolean { return !this.isAI(this.state.batter); }
 
-  private positionBat(frame: 'swing0' | 'swing1' | 'swing2'): void {
+  /** Put the bat in the batter's hands for a batting pose; the knob sits between the hands. */
+  private positionBat(frame: 'bat0' | 'bat1' | 'bat2' | 'bat3'): void {
     const b = this.batter;
     const s = b.sprite.scale;
-    const flip = b.facingDir;
-    const cfg = {
-      swing0: { dx: 10, dy: -150, angle: -70 },
-      swing1: { dx: -30, dy: -105, angle: -175 },
-      swing2: { dx: -40, dy: -70, angle: 150 },
-    }[frame];
-    this.bat.setPosition(b.x + cfg.dx * s * flip, b.y + cfg.dy * s);
-    this.bat.setAngle(cfg.angle * flip);
+    const hp = handPositions(('back-' + frame) as PoseName, b.facingDir);
+    const hx = (hp.left.x + hp.right.x) / 2;
+    const hy = (hp.left.y + hp.right.y) / 2;
+    // frame-local -> container-local (sprite is centred at (0, -FRAME/2*s + 14*s))
+    const lx = (hx - FRAME / 2) * s;
+    const ly = (hy - FRAME / 2) * s - FRAME * 0.5 * s + 14 * s;
+    const angle = { bat0: -112, bat1: -118, bat2: -6, bat3: -150 }[frame];
+    this.bat.setPosition(b.x + lx, b.y + ly);
+    this.bat.setAngle(angle);
+    this.bat.setDepth(frame === 'bat3' ? 499 : 501);
+  }
+
+  /** Quick motion-blur arc for the swing. */
+  private showSwingArc(): void {
+    const b = this.batter;
+    const s = b.sprite.scale;
+    const hp = handPositions('back-bat2', b.facingDir);
+    const cx = b.x + ((hp.left.x + hp.right.x) / 2 - FRAME / 2) * s;
+    const cy = b.y + ((hp.left.y + hp.right.y) / 2 - FRAME / 2) * s - FRAME * 0.5 * s + 14 * s;
+    const r = 150 * s;
+    this.swingArc.clear();
+    this.swingArc.setAlpha(1);
+    for (let i = 0; i < 5; i++) {
+      this.swingArc.fillStyle(0xffffff, 0.16 - i * 0.025);
+      this.swingArc.slice(cx, cy, r * (1 - i * 0.06), Phaser.Math.DegToRad(-150 + i * 10), Phaser.Math.DegToRad(10), false);
+      this.swingArc.fillPath();
+    }
+    this.tweens.add({ targets: this.swingArc, alpha: 0, duration: 220, onComplete: () => this.swingArc.clear() });
   }
 
   // ---------- Turn flow ----------
@@ -352,11 +474,11 @@ export class DerbyScene extends BaseGameScene {
     const pp = this.proj.project(DERBY_VISUAL.pitcherX, 0, DERBY_VISUAL.pitcherZ);
     this.pitcher = new CharacterSprite(this, pp.sx, pp.sy, this.players[p].character, pp.scale * 2.0 / 220 * 1.15);
     this.pitcher.setDepth(100).idle();
-    const bx = P ? W * 0.70 : W * 0.63;
-    const by = Math.min(this.fieldBottom + 40, this.plateScreen.y + (P ? 150 : 120));
+    const bx = this.plateScreen.x - (P ? 230 : 300);
+    const by = this.plateScreen.y + (P ? 60 : 40);
     this.batter = new CharacterSprite(this, bx, by, this.players[b].character, P ? 1.45 : 1.6);
-    this.batter.setDepth(500).setPose('back-swing0');
-    this.positionBat('swing0');
+    this.batter.setDepth(500).setPose('back-bat0');
+    this.positionBat('bat0');
   }
 
   private windup(): void {
@@ -382,6 +504,8 @@ export class DerbyScene extends BaseGameScene {
     this.pitcher.setAnim(['throw1', 'throw1'], 2, true);
     this.ball.setVisible(true);
     this.ballShadow.setVisible(true);
+    this.batter.setPose('back-bat1');
+    this.positionBat('bat1');
     Audio.sfx('throw');
   }
 
@@ -392,10 +516,11 @@ export class DerbyScene extends BaseGameScene {
     this.swung = true;
     this.phase = 'flight';
     // bat animation
-    this.batter.setPose('back-swing1');
-    this.positionBat('swing1');
+    this.batter.setPose('back-bat2');
+    this.positionBat('bat2');
+    this.showSwingArc();
     Audio.sfx('swing');
-    this.time.delayedCall(110, () => { this.batter.setPose('back-swing2'); this.positionBat('swing2'); });
+    this.time.delayedCall(110, () => { this.batter.setPose('back-bat3'); this.positionBat('bat3'); });
     const label = contact.timing === 'miss' ? 'MISS' : contact.timing.toUpperCase();
     const col = contact.timing === 'perfect' ? '#f5c518' : contact.timing === 'miss' ? '#ef5350' : '#8bc34a';
     this.timingLabel.setText(label).setColor(col);
@@ -440,8 +565,8 @@ export class DerbyScene extends BaseGameScene {
     }
     this.refreshHud();
     this.time.delayedCall(1100, () => {
-      this.batter.setPose('back-swing0');
-      this.positionBat('swing0');
+      this.batter.setPose('back-bat0');
+      this.positionBat('bat0');
       if (this.state.phase === 'done') return this.endMatch();
       if (this.state.phase === 'switch') {
         const nr = this.state.newRound;
@@ -472,6 +597,7 @@ export class DerbyScene extends BaseGameScene {
   }
 
   private refreshHud(): void {
+    this.refreshScoreboard();
     const s = this.state;
     for (const slot of [0, 1] as const) {
       this.setScore(slot, `${s.scores[slot]} HR  •  ${Math.min(s.outs[slot], s.outsLimit)}/${s.outsLimit} outs`);
