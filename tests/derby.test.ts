@@ -134,8 +134,9 @@ describe('derby batting', () => {
     expect(['short', 'trees', 'popup', 'foul']).toContain(f.reason);
   });
 
-  it('early swings pull left and late swings push right', () => {
-    expect(computeContact(-120, 0, 0).directionDeg).toBeLessThan(0);
-    expect(computeContact(120, 0, 0).directionDeg).toBeGreaterThan(0);
+  it('early swings pull left and late swings push right of the fair centre', () => {
+    expect(computeContact(-120, 0, 0).directionDeg).toBeLessThan(DEFAULT_BATTING.fairCenterDeg);
+    expect(computeContact(120, 0, 0).directionDeg).toBeGreaterThan(DEFAULT_BATTING.fairCenterDeg);
+    expect(computeContact(0, 0, 0).directionDeg).toBeCloseTo(DEFAULT_BATTING.fairCenterDeg, 5);
   });
 });

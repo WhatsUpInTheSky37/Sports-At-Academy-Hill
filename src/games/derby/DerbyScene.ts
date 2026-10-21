@@ -14,7 +14,8 @@ export const DERBY_VISUAL = {
   /** Camera distance behind the plate (m), height (m). */
   camZ: 5.2,
   camH: 2.1,
-  /** Pitcher position (m). */
+  /** Pitcher position (m): on the lawn just left of the driveway, inside the fair wedge. */
+  pitcherX: -1.1,
   pitcherZ: 14,
   /** Displayed ball diameter in metres (exaggerated for readability). */
   ballDiameter: 0.17,
@@ -75,12 +76,12 @@ export class DerbyScene extends BaseGameScene {
     this.state = createDerby(DEFAULT_DERBY_RULES, 0);
 
     // Characters
-    const pp = this.proj.project(0.4, 0, DERBY_VISUAL.pitcherZ);
+    const pp = this.proj.project(DERBY_VISUAL.pitcherX, 0, DERBY_VISUAL.pitcherZ);
     this.pitcher = new CharacterSprite(this, pp.sx, pp.sy, this.players[1].character, pp.scale * 2.0 / 220 * 1.15);
     this.pitcher.setDepth(100).idle();
     const plate = this.proj.project(0, 0, 0);
     this.plateScreen = { x: plate.sx, y: plate.sy };
-    const bx = P ? W * 0.72 : W * 0.66;
+    const bx = P ? W * 0.70 : W * 0.63;
     const by = Math.min(this.fieldBottom + 40, plate.sy + (P ? 150 : 120));
     this.batter = new CharacterSprite(this, bx, by, this.players[0].character, P ? 1.45 : 1.6);
     this.batter.setDepth(500).setPose('back-swing0');
@@ -109,97 +110,86 @@ export class DerbyScene extends BaseGameScene {
       const { canvas, ctx } = createCanvas(W, H);
       const pr = this.proj;
       const horizon = pr.cam.horizonY;
-      paintSky(ctx, W, H, horizon + 2);
-      // Lawn
-      paintGrass(ctx, 0, horizon, W, H - horizon, 4, '#5c9a3a');
-      // perspective mowing stripes
-      ctx.save();
-      ctx.globalAlpha = 0.12;
-      for (let k = -12; k < 12; k++) {
-        if (k % 2 !== 0) continue;
-        const a = pr.project(k * 4, 0, 0.1);
-        const b = pr.project((k + 1) * 4, 0, 0.1);
-        const c = pr.project((k + 1) * 4, 0, 120);
-        const d = pr.project(k * 4, 0, 120);
-        ctx.fillStyle = '#eaffd0';
-        ctx.beginPath(); ctx.moveTo(a.sx, a.sy); ctx.lineTo(b.sx, b.sy); ctx.lineTo(c.sx, c.sy); ctx.lineTo(d.sx, d.sy); ctx.closePath(); ctx.fill();
-      }
-      ctx.restore();
-      // Distant neighbourhood: tiny houses and big far trees behind the boundary
       const r = rng(77);
-      for (let i = 0; i < 14; i++) {
-        const x = -60 + i * 9 + r() * 4;
-        const z = 75 + r() * 20;
+      paintSky(ctx, W, H, horizon + 2);
+      // Lawn everywhere below the horizon
+      paintGrass(ctx, 0, horizon, W, H - horizon, 4, '#5c9a3a');
+      // Distant neighbourhood beyond the back hedge: roofs and big old trees
+      for (let i = 0; i < 12; i++) {
+        const x = -58 + i * 9 + r() * 4;
+        const z = 70 + r() * 20;
         const p = pr.project(x, 0, z);
-        const s = p.scale;
-        paintHouseFront(ctx, p.sx - 4 * s, p.sy - 5 * s, 8 * s, 5 * s, { siding: ['#f1e6c8', '#d9e4f0', '#e8d4c0'][i % 3] });
+        paintHouseFront(ctx, p.sx - 4 * p.scale, p.sy - 5 * p.scale, 8 * p.scale, 5 * p.scale, { siding: ['#f1e6c8', '#d9e4f0', '#e8d4c0'][i % 3] });
       }
-      for (let i = 0; i < 26; i++) {
-        const x = -70 + i * 5.6 + r() * 3;
-        const z = 60 + r() * 25;
+      for (let i = 0; i < 24; i++) {
+        const x = -70 + i * 6 + r() * 3;
+        const z = 58 + r() * 22;
         const p = pr.project(x, 0, z);
         paintTreeSide(ctx, p.sx, p.sy, 8 * p.scale, 100 + i);
       }
-      // Vinnie's house along the right side, and the driveway the batter stands on
-      const dz0 = -4, dz1 = 34;
-      const d0 = pr.project(2.2, 0, dz0), d1 = pr.project(6.4, 0, dz0), d2 = pr.project(6.4, 0, dz1), d3 = pr.project(2.2, 0, dz1);
+      // The long driveway: the batter stands at its street end, it runs straight away from the camera.
+      const dw = 1.9;
+      const d0 = pr.project(-dw, 0, -4.8), d1 = pr.project(dw, 0, -4.8), d2 = pr.project(dw, 0, 32), d3 = pr.project(-dw, 0, 32);
       ctx.save();
       ctx.beginPath(); ctx.moveTo(d0.sx, d0.sy); ctx.lineTo(d1.sx, d1.sy); ctx.lineTo(d2.sx, d2.sy); ctx.lineTo(d3.sx, d3.sy); ctx.closePath(); ctx.clip();
-      paintAsphalt(ctx, 0, horizon, W, H - horizon, 5, '#777470');
+      paintAsphalt(ctx, 0, horizon, W, H - horizon, 5, '#6f6e6a');
+      // grass growing in the cracks, as in the photo
+      ctx.strokeStyle = 'rgba(95,150,60,0.55)';
+      for (let z = -4; z < 30; z += 2.2 + r() * 2) {
+        const a = pr.project(-dw + r() * 0.8, 0, z), b = pr.project(dw - r() * 0.8, 0, z + (r() - 0.5) * 0.4);
+        ctx.lineWidth = Math.max(1, 0.025 * a.scale);
+        ctx.beginPath(); ctx.moveTo(a.sx, a.sy); ctx.lineTo(b.sx, b.sy); ctx.stroke();
+      }
+      const seam = pr.project(0.15, 0, -4.8), seam2 = pr.project(0.15, 0, 32);
+      ctx.lineWidth = 1.5; ctx.beginPath(); ctx.moveTo(seam.sx, seam.sy); ctx.lineTo(seam2.sx, seam2.sy); ctx.stroke();
       ctx.restore();
-      const hp = pr.project(6.8, 0, 9);
-      const hs = hp.scale;
-      paintHouseFront(ctx, hp.sx, hp.sy - 7.5 * hs, 16 * hs, 7.5 * hs, { siding: '#f3ead3', garage: true });
-      // Small backyard trees (childhood-sized, jumpable) scattered with gaps
-      const yardTrees = [[-16, 30], [-26, 36], [14, 38], [-7, 41], [22, 31], [-32, 27]];
-      yardTrees.forEach(([x, z], i) => {
-        const p = pr.project(x, 0, z);
-        paintPine(ctx, p.sx, p.sy, 2.2 * p.scale, 200 + i);
-      });
-      // Home run boundary: dashed line + tree line at z = boundary
+      // Fair wedge tint, foul lines and the home-run hedge line
+      const cen = this.cfg.fairCenterDeg, half = this.cfg.fairAngleDeg;
+      const ray = (deg: number, dist: number) => pr.project(Math.sin((deg * Math.PI) / 180) * dist, 0, Math.cos((deg * Math.PI) / 180) * dist);
+      const home = pr.project(0, 0, 0);
+      const fl = ray(cen - half, 70), fr = ray(cen + half, 70);
+      ctx.fillStyle = 'rgba(255,255,150,0.09)';
+      ctx.beginPath(); ctx.moveTo(home.sx, home.sy); ctx.lineTo(fl.sx, fl.sy); ctx.lineTo(fr.sx, fr.sy); ctx.closePath(); ctx.fill();
+      ctx.strokeStyle = 'rgba(255,255,255,0.85)';
+      ctx.lineWidth = 3;
+      ctx.beginPath(); ctx.moveTo(home.sx, home.sy); ctx.lineTo(fl.sx, fl.sy); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(home.sx, home.sy); ctx.lineTo(fr.sx, fr.sy); ctx.stroke();
       const bz = this.cfg.boundaryZ;
-      const bl = pr.project(-45, 0, bz), br = pr.project(45, 0, bz);
+      const bl = pr.project(-34, 0, bz), br = pr.project(4, 0, bz);
       ctx.setLineDash([14, 10]);
       ctx.strokeStyle = 'rgba(255,215,0,0.95)';
       ctx.lineWidth = 4;
       ctx.beginPath(); ctx.moveTo(bl.sx, bl.sy); ctx.lineTo(br.sx, br.sy); ctx.stroke();
       ctx.setLineDash([]);
-      for (let x = -46; x <= 46; x += 5.5) {
-        const p = pr.project(x + (r() - 0.5) * 1.5, 0, bz + 0.6 + r() * 1.2);
-        const h = this.cfg.treeHeight * (0.95 + r() * 0.3);
-        paintPine(ctx, p.sx, p.sy, h * p.scale * 1.08, 300 + Math.round(x));
-      }
-      // Foul lines (chalk) and fair wedge tint
-      const fa = (this.cfg.fairAngleDeg * Math.PI) / 180;
-      const fl = pr.project(-Math.sin(fa) * 60, 0, Math.cos(fa) * 60);
-      const fr = pr.project(Math.sin(fa) * 60, 0, Math.cos(fa) * 60);
-      const home = pr.project(0, 0, 0);
-      ctx.fillStyle = 'rgba(255,255,150,0.08)';
-      ctx.beginPath(); ctx.moveTo(home.sx, home.sy); ctx.lineTo(fl.sx, fl.sy); ctx.lineTo(fr.sx, fr.sy); ctx.closePath(); ctx.fill();
-      ctx.strokeStyle = 'rgba(255,255,255,0.8)';
-      ctx.lineWidth = 3;
-      ctx.beginPath(); ctx.moveTo(home.sx, home.sy); ctx.lineTo(fl.sx, fl.sy); ctx.stroke();
-      ctx.beginPath(); ctx.moveTo(home.sx, home.sy); ctx.lineTo(fr.sx, fr.sy); ctx.stroke();
-      // Home plate + dirt patch
+      // Hedge rows (childhood-sized evergreens with gaps): back of the yard, left side, right side of the driveway.
+      const hedge: { x: number; z: number; h: number; seed: number }[] = [];
+      for (let x = -34; x <= 4; x += 2.3) hedge.push({ x: x + (r() - 0.5) * 0.6, z: bz + 0.8 + r() * 1.2, h: this.cfg.treeHeight * (0.95 + r() * 0.3), seed: 300 + Math.round(x) });
+      for (let z = 26; z < bz; z += 2.3) hedge.push({ x: -34 + (r() - 0.5) * 0.6, z, h: this.cfg.treeHeight * (0.95 + r() * 0.3), seed: 400 + Math.round(z) });
+      for (let z = 3; z < 44; z += 2.3) hedge.push({ x: 3.4 + (r() - 0.5) * 0.4, z, h: this.cfg.treeHeight * (0.95 + r() * 0.3), seed: 500 + Math.round(z) });
+      hedge.sort((a, b) => b.z - a.z);
+      const nearHedge = hedge.filter((t) => t.z < 24 && t.x > 0);
+      const farHedge = hedge.filter((t) => !(t.z < 24 && t.x > 0));
+      farHedge.forEach((t) => { const p = pr.project(t.x, 0, t.z); paintPine(ctx, p.sx, p.sy, t.h * p.scale * 1.08, t.seed); });
+      // Vinnie's house on the left of the driveway (white siding, blue shutters, grey roof, chimney)
+      this.paintHouse(ctx);
+      nearHedge.forEach((t) => { const p = pr.project(t.x, 0, t.z); paintPine(ctx, p.sx, p.sy, t.h * p.scale * 1.08, t.seed); });
+      // Home plate: a chalk pentagon at the end of the driveway, pitcher's rubber on the lawn
       const ps = home.scale;
-      ctx.fillStyle = 'rgba(120,90,60,0.55)';
-      ctx.beginPath(); ctx.ellipse(home.sx, home.sy, 1.6 * ps, 0.5 * ps, 0, 0, Math.PI * 2); ctx.fill();
       ctx.fillStyle = '#f4f1e8';
       ctx.strokeStyle = 'rgba(0,0,0,0.4)'; ctx.lineWidth = 2;
       const pw = 0.43 * ps, ph = 0.16 * ps;
       ctx.beginPath();
       ctx.moveTo(home.sx - pw, home.sy - ph * 0.6); ctx.lineTo(home.sx + pw, home.sy - ph * 0.6); ctx.lineTo(home.sx + pw, home.sy + ph * 0.2); ctx.lineTo(home.sx, home.sy + ph); ctx.lineTo(home.sx - pw, home.sy + ph * 0.2); ctx.closePath();
       ctx.fill(); ctx.stroke();
-      // Pitcher's rubber
-      const pm = pr.project(0, 0, DERBY_VISUAL.pitcherZ + 0.6);
+      const pm = pr.project(DERBY_VISUAL.pitcherX, 0, DERBY_VISUAL.pitcherZ + 0.6);
       ctx.fillStyle = 'rgba(255,255,255,0.85)';
       ctx.fillRect(pm.sx - 0.3 * pm.scale, pm.sy - 2, 0.6 * pm.scale, 4);
-      // Boundary label
-      const lbl = pr.project(0, 3.8, bz + 1);
+      // Boundary label over the back hedge
+      const lbl = pr.project(-4, 3.6, bz + 1);
       ctx.fillStyle = 'rgba(13,31,16,0.8)';
       ctx.font = 'bold 22px "Arial Black", Arial';
       ctx.textAlign = 'center';
-      const txt = 'HOME RUN — OVER THE TREES';
+      const txt = 'HOME RUN — OVER THE HEDGE';
       const tw = ctx.measureText(txt).width + 30;
       ctx.fillRect(lbl.sx - tw / 2, lbl.sy - 18, tw, 34);
       ctx.fillStyle = '#f5c518';
@@ -207,6 +197,77 @@ export class DerbyScene extends BaseGameScene {
       this.textures.addCanvas(key, canvas);
     }
     this.add.image(W / 2, H / 2, key).setDepth(0);
+  }
+
+  /** The house beside the driveway, drawn in perspective from projected corners. */
+  private paintHouse(ctx: CanvasRenderingContext2D): void {
+    const pr = this.proj;
+    const wx = -3.0;      // wall facing the driveway
+    const z0 = 9, z1 = 24; // front and back of the house along the driveway
+    const wallH = 3.0, ridgeH = 5.6, ridgeX = -8.2, backX = -13.8;
+    const P = (x: number, y: number, z: number) => pr.project(x, y, z);
+    const poly = (pts: { sx: number; sy: number }[], fill: string | CanvasGradient, stroke = 'rgba(40,30,20,0.55)') => {
+      ctx.beginPath();
+      pts.forEach((p, i) => (i === 0 ? ctx.moveTo(p.sx, p.sy) : ctx.lineTo(p.sx, p.sy)));
+      ctx.closePath();
+      ctx.fillStyle = fill; ctx.fill();
+      ctx.strokeStyle = stroke; ctx.lineWidth = 2; ctx.stroke();
+    };
+    // front (street-facing) wall + gable, seen at an angle
+    const f0 = P(backX, 0, z0), f1 = P(wx, 0, z0), f2 = P(wx, wallH, z0), f3 = P(backX, wallH, z0);
+    const fg = ctx.createLinearGradient(f0.sx, 0, f1.sx, 0);
+    fg.addColorStop(0, '#d9d4c7'); fg.addColorStop(1, '#f2eee4');
+    poly([f0, f1, f2, f3], fg);
+    const gable = P(ridgeX, ridgeH, z0);
+    poly([f3, f2, gable], '#e9e4d8');
+    // side wall along the driveway
+    const s0 = P(wx, 0, z0), s1 = P(wx, 0, z1), s2 = P(wx, wallH, z1), s3 = P(wx, wallH, z0);
+    poly([s0, s1, s2, s3], '#f6f3ea');
+    ctx.strokeStyle = 'rgba(0,0,0,0.1)';
+    ctx.lineWidth = 1;
+    for (let h = 0.25; h < wallH; h += 0.25) {
+      const a = P(wx, h, z0), b = P(wx, h, z1);
+      ctx.beginPath(); ctx.moveTo(a.sx, a.sy); ctx.lineTo(b.sx, b.sy); ctx.stroke();
+    }
+    // roof: slope from the driveway-side eave up to the ridge
+    const r0 = P(wx + 0.3, wallH, z0 - 0.3), r1 = P(wx + 0.3, wallH, z1 + 0.3), r2 = P(ridgeX, ridgeH, z1 + 0.3), r3 = P(ridgeX, ridgeH, z0 - 0.3);
+    const rg = ctx.createLinearGradient(0, r3.sy, 0, r0.sy);
+    rg.addColorStop(0, '#8a8a88'); rg.addColorStop(1, '#5a5a58');
+    poly([r0, r1, r2, r3], rg, 'rgba(30,30,30,0.6)');
+    ctx.strokeStyle = 'rgba(0,0,0,0.12)';
+    for (let k = 1; k < 6; k++) {
+      const t = k / 6;
+      const a = P(wx + 0.3 + (ridgeX - wx - 0.3) * t, wallH + (ridgeH - wallH) * t, z0 - 0.3);
+      const b = P(wx + 0.3 + (ridgeX - wx - 0.3) * t, wallH + (ridgeH - wallH) * t, z1 + 0.3);
+      ctx.beginPath(); ctx.moveTo(a.sx, a.sy); ctx.lineTo(b.sx, b.sy); ctx.stroke();
+    }
+    // chimney
+    const c0 = P(ridgeX - 0.4, ridgeH - 0.2, 15), c1 = P(ridgeX + 0.4, ridgeH - 0.2, 15), c2 = P(ridgeX + 0.4, ridgeH + 0.9, 15), c3 = P(ridgeX - 0.4, ridgeH + 0.9, 15);
+    poly([c0, c1, c2, c3], '#8f8f8d');
+    // windows with blue shutters on the driveway wall, and the side door with its light
+    const win = (zc: number, w: number, hBottom: number, hTop: number) => {
+      const a = P(wx, hBottom, zc - w / 2), b = P(wx, hBottom, zc + w / 2), c = P(wx, hTop, zc + w / 2), d = P(wx, hTop, zc - w / 2);
+      poly([a, b, c, d], '#9fd3ff', '#ffffff');
+      const sh = 0.32;
+      const l0 = P(wx, hBottom, zc - w / 2 - sh), l1 = P(wx, hBottom, zc - w / 2), l2 = P(wx, hTop, zc - w / 2), l3 = P(wx, hTop, zc - w / 2 - sh);
+      poly([l0, l1, l2, l3], '#2c4fb8', 'rgba(0,0,0,0.4)');
+      const q0 = P(wx, hBottom, zc + w / 2), q1 = P(wx, hBottom, zc + w / 2 + sh), q2 = P(wx, hTop, zc + w / 2 + sh), q3 = P(wx, hTop, zc + w / 2);
+      poly([q0, q1, q2, q3], '#2c4fb8', 'rgba(0,0,0,0.4)');
+    };
+    win(12.5, 1.1, 1.1, 2.4);
+    win(20.5, 1.1, 1.1, 2.4);
+    const door = [P(wx, 0, 16), P(wx, 0, 16.9), P(wx, 2.1, 16.9), P(wx, 2.1, 16)];
+    poly(door, '#2c4fb8', 'rgba(0,0,0,0.4)');
+    // trash can and a shrub by the back corner, like the photo
+    const tc = P(wx + 0.35, 0, 23.4);
+    ctx.fillStyle = '#4a4a4a';
+    ctx.fillRect(tc.sx - 0.3 * tc.scale, tc.sy - 0.95 * tc.scale, 0.6 * tc.scale, 0.95 * tc.scale);
+    ctx.fillStyle = '#5a5a5a';
+    ctx.fillRect(tc.sx - 0.34 * tc.scale, tc.sy - 1.02 * tc.scale, 0.68 * tc.scale, 0.12 * tc.scale);
+    const sb = P(wx + 0.6, 0, 21.5);
+    paintTreeSide(ctx, sb.sx, sb.sy, 1.3 * sb.scale, 61);
+    const foundation = [P(wx, 0, z0), P(wx, 0, z1), P(wx, 0.25, z1), P(wx, 0.25, z0)];
+    poly(foundation, '#b9b4a8', 'rgba(0,0,0,0.3)');
   }
 
   private buildReticle(): Phaser.GameObjects.Container {
@@ -343,10 +404,10 @@ export class DerbyScene extends BaseGameScene {
     this.batter.destroy();
     this.pitcher.destroy();
     const W = this.W, P = this.portrait;
-    const pp = this.proj.project(0.4, 0, DERBY_VISUAL.pitcherZ);
+    const pp = this.proj.project(DERBY_VISUAL.pitcherX, 0, DERBY_VISUAL.pitcherZ);
     this.pitcher = new CharacterSprite(this, pp.sx, pp.sy, this.players[p].character, pp.scale * 2.0 / 220 * 1.15);
     this.pitcher.setDepth(100).idle();
-    const bx = P ? W * 0.72 : W * 0.66;
+    const bx = P ? W * 0.70 : W * 0.63;
     const by = Math.min(this.fieldBottom + 40, this.plateScreen.y + (P ? 150 : 120));
     this.batter = new CharacterSprite(this, bx, by, this.players[b].character, P ? 1.45 : 1.6);
     this.batter.setDepth(500).setPose('back-swing0');
@@ -501,7 +562,7 @@ export class DerbyScene extends BaseGameScene {
       this.pitchT += dt;
       const progress = this.pitchT / this.cfg.pitchSeconds; // 1 at the plate
       // ball position: from release to contact point with a gentle arc
-      const rel = { x: 0.45, y: 1.55, z: DERBY_VISUAL.pitcherZ - 0.4 };
+      const rel = { x: DERBY_VISUAL.pitcherX + 0.4, y: 1.55, z: DERBY_VISUAL.pitcherZ - 0.4 };
       const tgt = this.contactWorld;
       const p = Math.min(progress, 1.35);
       const wx = rel.x + (tgt.x - rel.x) * p;

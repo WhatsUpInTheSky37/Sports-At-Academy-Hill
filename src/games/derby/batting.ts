@@ -12,7 +12,12 @@ export interface BattingConfig {
   maxContactMs: number;
   /** Lateral direction (deg) applied at the edge of the contact window (early = negative/left). */
   maxPullDeg: number;
-  /** Fair territory is within +/- fairAngleDeg of straight away. */
+  /**
+   * Fair territory is a wedge centred fairCenterDeg from straight-up-the-driveway (negative = left,
+   * toward the backyard) and +/- fairAngleDeg wide. Matches the real yard: the left foul line runs
+   * from the plate to the far-left corner of the backyard, the right one follows the hedge beside the driveway.
+   */
+  fairCenterDeg: number;
   fairAngleDeg: number;
   /** Distance (m) from the plate to the home run boundary (the tree line). */
   boundaryZ: number;
@@ -37,17 +42,18 @@ export const DEFAULT_BATTING: BattingConfig = {
   perfectMs: 55,
   goodMs: 130,
   maxContactMs: 230,
-  maxPullDeg: 48,
-  fairAngleDeg: 30,
+  maxPullDeg: 34,
+  fairCenterDeg: -15,
+  fairAngleDeg: 19,
   boundaryZ: 45,
-  treeHeight: 2.6,
+  treeHeight: 1.4,
   minExitSpeed: 18,
   maxExitSpeed: 35,
   baseLaunchDeg: 27,
   launchRangeDeg: 24,
   aimLateralDeg: 12,
   gravity: 9.81,
-  drag: 0.32,
+  drag: 0.38,
   pitchSeconds: 1.15,
 };
 
@@ -104,8 +110,8 @@ export function computeContact(offsetMs: number, aimX: number, aimY: number, cfg
   const quality = clamp(timingQ * aimQ, 0, 1);
   const exitSpeed = cfg.minExitSpeed + (cfg.maxExitSpeed - cfg.minExitSpeed) * quality;
   const launchDeg = cfg.baseLaunchDeg + ay * cfg.launchRangeDeg;
-  const directionDeg = (offsetMs / cfg.maxContactMs) * cfg.maxPullDeg * (timing === 'perfect' ? 0.35 : 1) + ax * cfg.aimLateralDeg;
-  const fair = Math.abs(directionDeg) <= cfg.fairAngleDeg;
+  const directionDeg = cfg.fairCenterDeg + (offsetMs / cfg.maxContactMs) * cfg.maxPullDeg * (timing === 'perfect' ? 0.35 : 1) + ax * cfg.aimLateralDeg;
+  const fair = Math.abs(directionDeg - cfg.fairCenterDeg) <= cfg.fairAngleDeg;
   return { timing, quality, exitSpeed, launchDeg, directionDeg, fair, miss: false };
 }
 
