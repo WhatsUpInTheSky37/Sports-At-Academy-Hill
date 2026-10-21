@@ -1,0 +1,19 @@
+# Progress
+
+Working notes for the Sports at Academy Hill build. Updated as work lands.
+
+## Done
+- Project scaffold: Vite 7 + TypeScript 5 + Phaser 3.90 + Vitest 3, production build and typecheck scripts.
+- Shared shell: boot, main menu ("What game do you want to play?"), match setup (1P vs CPU / local 2P, Easy-Normal-Hard, pick any two of Will / Vinnie / Bryan / Ben), settings (sound + music separately, touch controls, difficulty), records, championship hub, How-to-Play / Pause / Result overlays.
+- Both orientations: the logical canvas is 1920x1080 in landscape and 1080x1920 in portrait; every screen lays itself out from the live size. Rotating mid-match keeps the match and re-lays out on the next screen.
+- Core systems: localStorage settings + win/loss records, procedural WebAudio sound effects and music loop, keyboard (two layouts) + on-screen joystick/buttons, pseudo-3D projector for the behind-the-player camera views, procedural character sprites (front and back views, poses) and equipment textures, environment painters.
+- Game 1 Home Run Derby: perspective view, aim reticle + timing bar, real flight physics, trees-as-boundary, 10 outs, tiebreak rounds, CPU batter with difficulty noise. Tests for rules and batting.
+- Championship progression logic with clinch announcement and final celebration. Tests.
+- Headless smoke script (scripts/smoke.mjs) and a derby full-match playthrough script.
+
+## In progress
+- Games 2-7 (HORSE, billiards, wrestling, hockey, football, darts) are being built in parallel in their own folders with pure rules modules and tests.
+
+## Remaining
+- Integrate all seven games, run the full test suite, production build and browser smoke test for every game in both orientations.
+- README polish, final commit/PR.

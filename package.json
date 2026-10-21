@@ -1,0 +1,25 @@
+{
+  "name": "sports-at-academy-hill",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Sports at Academy Hill - seven homemade backyard, driveway and basement sports in one browser game.",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit -p tsconfig.json && vite build",
+    "preview": "vite preview",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "smoke": "node scripts/smoke.mjs"
+  },
+  "dependencies": {
+    "phaser": "3.90.0"
+  },
+  "devDependencies": {
+    "typescript": "5.9.3",
+    "vite": "7.3.7",
+    "vitest": "3.2.7",
+    "playwright": "1.64.1"
+  }
+}
