@@ -47,10 +47,28 @@ export const WRESTLING_TUNING = {
   /** Seconds per count of the three-count. */
   pinCountSeconds: 1.0,
   pinCounts: 3,
-  /** Escape marker sweep period (s) and the fraction of the bar that counts as the green zone. */
-  escapeMarkerPeriod: 1.1,
-  escapeWindow: 0.24,
-  escapeLockout: 0.5,
+  /** Seconds of holding ESCAPE (at full stamina) to break a pin; an exhausted wrestler takes 1/escapeMinStaminaFactor as long. */
+  escapeHoldSeconds: 1.4,
+  escapeMinStaminaFactor: 0.45,
+  /** Escape progress lost per second while the button is not held. */
+  escapeDrain: 0.35,
+  /** Stamina spent on a successful escape. */
+  escapeCost: 12,
+  /** Strikes: a quick punch and a slower, longer-reaching leg kick. Both drain the opponent's stamina. */
+  punchCost: 8,
+  punchRange: 0.95,
+  punchCooldown: 0.45,
+  punchDrain: 9,
+  punchKnockback: 0.45,
+  punchStagger: 0.7,
+  punchDuration: 0.25,
+  kickCost: 16,
+  kickRange: 1.25,
+  kickCooldown: 0.9,
+  kickDrain: 16,
+  kickKnockback: 0.8,
+  kickStagger: 0.85,
+  kickDuration: 0.42,
   ringOutPause: 1.6,
   /** Fraction of missing stamina restored on a ring-out reset. */
   ringOutStaminaRestore: 0.5,
@@ -63,7 +81,8 @@ export const WRESTLING_TUNING = {
   introSeconds: 1.2,
 };
 
-export type WrestlerState = 'idle' | 'stagger' | 'grapple' | 'down' | 'pinning' | 'pinned';
+export type WrestlerState = 'idle' | 'stagger' | 'grapple' | 'down' | 'pinning' | 'pinned' | 'strike';
+export type StrikeKind = 'punch' | 'kick';
 
 export interface Wrestler {
   x: number;
@@ -79,8 +98,10 @@ export interface Wrestler {
   vz: number;
   /** True this frame while the wrestler is walking. */
   moving: boolean;
-  /** Seconds until the next shove is allowed. */
+  /** Seconds until the next shove / punch / kick is allowed. */
   cooldown: number;
+  /** Which strike is being thrown while in the 'strike' state. */
+  strike: StrikeKind | null;
 }
 
 export interface Inputs {
@@ -90,7 +111,10 @@ export interface Inputs {
   grapple: boolean;
   grappleJust: boolean;
   shoveJust: boolean;
-  escapeJust: boolean;
+  punchJust: boolean;
+  kickJust: boolean;
+  /** Escape button held (any button while pinned). */
+  escape: boolean;
 }
 
 export interface PinState {
@@ -100,11 +124,10 @@ export interface PinState {
   count: number;
   /** Seconds into the current count. */
   progress: number;
-  /** Escape marker position 0..1 (ping-pong). */
-  marker: number;
-  markerDir: 1 | -1;
-  /** Seconds the defender's escape button stays locked after a mistimed tap. */
-  lockout: number;
+  /** Escape progress 0..1: fills while the defender holds ESCAPE, drains while they let go. */
+  escape: number;
+  /** True while the defender is holding the escape button. */
+  holding: boolean;
 }
 
 export type WrestlingEvent =
@@ -117,7 +140,8 @@ export type WrestlingEvent =
   | { type: 'count'; n: number }
   | { type: 'pinReleased' }
   | { type: 'escape'; by: 0 | 1 }
-  | { type: 'escapeMissed'; by: 0 | 1 }
+  | { type: 'punch'; by: 0 | 1; hit: boolean }
+  | { type: 'kick'; by: 0 | 1; hit: boolean; down: boolean }
   | { type: 'ringOut'; who: 0 | 1 }
   | { type: 'reset' }
   | { type: 'getUp'; who: 0 | 1 }
@@ -136,7 +160,7 @@ export interface WrestlingState {
   ringOutBy: 0 | 1 | null;
 }
 
-export const NO_INPUT: Inputs = { x: 0, y: 0, grapple: false, grappleJust: false, shoveJust: false, escapeJust: false };
+export const NO_INPUT: Inputs = { x: 0, y: 0, grapple: false, grappleJust: false, shoveJust: false, punchJust: false, kickJust: false, escape: false };
 
 export const START_POSITIONS: [{ x: number; z: number }, { x: number; z: number }] = [
   { x: -0.9, z: 0 },
@@ -144,14 +168,14 @@ export const START_POSITIONS: [{ x: number; z: number }, { x: number; z: number 
 ];
 
 function makeWrestler(slot: 0 | 1): Wrestler {
-  return { ...START_POSITIONS[slot], facing: slot === 0 ? 1 : -1, stamina: WRESTLING_TUNING.staminaMax, state: 'idle', stateTime: 0, vx: 0, vz: 0, moving: false, cooldown: 0 };
+  return { ...START_POSITIONS[slot], facing: slot === 0 ? 1 : -1, stamina: WRESTLING_TUNING.staminaMax, state: 'idle', stateTime: 0, vx: 0, vz: 0, moving: false, cooldown: 0, strike: null };
 }
 
 export function createWrestling(): WrestlingState {
   return {
     w: [makeWrestler(0), makeWrestler(1)],
     grapple: { active: false, advantage: 0 },
-    pin: { active: false, attacker: 0, count: 0, progress: 0, marker: 0, markerDir: 1, lockout: 0 },
+    pin: { active: false, attacker: 0, count: 0, progress: 0, escape: 0, holding: false },
     phase: 'intro',
     phaseTime: 0,
     time: 0,
@@ -177,9 +201,14 @@ export function vulnerabilityLeft(w: Wrestler, t = WRESTLING_TUNING): number {
   return w.state === 'down' ? Math.max(0, t.downDuration - w.stateTime) : w.state === 'pinned' ? t.downDuration : 0;
 }
 
-/** Escape succeeds when the marker is inside the centred green window. */
-export function escapeWindowHit(marker: number, t = WRESTLING_TUNING): boolean {
-  return Math.abs(marker - 0.5) <= t.escapeWindow / 2;
+/** Escape progress gained per second of holding, scaled by the pinned wrestler's stamina. */
+export function escapeFillRate(w: Wrestler, t = WRESTLING_TUNING): number {
+  const f = t.escapeMinStaminaFactor + (1 - t.escapeMinStaminaFactor) * Math.max(0, Math.min(1, w.stamina / t.staminaMax));
+  return f / t.escapeHoldSeconds;
+}
+
+export function strikeDuration(kind: StrikeKind, t = WRESTLING_TUNING): number {
+  return kind === 'punch' ? t.punchDuration : t.kickDuration;
 }
 
 export interface StepOptions { rand?: () => number; tuning?: typeof WRESTLING_TUNING; }
@@ -187,6 +216,7 @@ export interface StepOptions { rand?: () => number; tuning?: typeof WRESTLING_TU
 function setState(w: Wrestler, s: WrestlerState): void {
   w.state = s;
   w.stateTime = 0;
+  if (s !== 'strike') w.strike = null;
 }
 
 function dirTo(from: Wrestler, to: Wrestler): { x: number; z: number } {
@@ -238,6 +268,7 @@ export function step(state: WrestlingState, inputs: [Inputs, Inputs], dt: number
     w.moving = false;
     w.cooldown = Math.max(0, w.cooldown - dt);
     if (w.state === 'stagger' && w.stateTime >= getStaggerDuration(w)) setState(w, 'idle');
+    if (w.state === 'strike' && w.stateTime >= strikeDuration(w.strike ?? 'punch', t)) setState(w, 'idle');
     if (w.state === 'down' && w.stateTime >= t.downDuration) {
       setState(w, 'stagger');
       w.stateTime = getStaggerDuration(w) - t.recoverStagger; // short recovery stagger
@@ -257,11 +288,10 @@ export function step(state: WrestlingState, inputs: [Inputs, Inputs], dt: number
     const def = state.w[other(p.attacker)];
     const attIn = inputs[p.attacker];
     const defIn = inputs[other(p.attacker)];
-    // marker sweep
-    p.marker += (p.markerDir * dt) / (t.escapeMarkerPeriod / 2);
-    if (p.marker >= 1) { p.marker = 1; p.markerDir = -1; }
-    if (p.marker <= 0) { p.marker = 0; p.markerDir = 1; }
-    p.lockout = Math.max(0, p.lockout - dt);
+    // hold to escape: fills while held (faster with more stamina), drains while released
+    p.holding = defIn.escape;
+    if (defIn.escape) p.escape = Math.min(1, p.escape + escapeFillRate(def, t) * dt);
+    else p.escape = Math.max(0, p.escape - t.escapeDrain * dt);
     if (!attIn.grapple) {
       // released: defender back to down with a little extra vulnerability
       p.active = false;
@@ -271,19 +301,16 @@ export function step(state: WrestlingState, inputs: [Inputs, Inputs], dt: number
       ev.push({ type: 'pinReleased' });
       return finishStep(state, t, ev);
     }
-    if (defIn.escapeJust && p.lockout <= 0) {
-      if (escapeWindowHit(p.marker, t)) {
-        p.active = false;
-        setState(def, 'idle');
-        setState(att, 'stagger');
-        att.stateTime = getStaggerDuration(att) - t.escapedStagger;
-        const d = dirTo(att, def);
-        def.vx = d.x * 2.2; def.vz = d.z * 2.2;
-        ev.push({ type: 'escape', by: other(p.attacker) });
-        return finishStep(state, t, ev);
-      }
-      p.lockout = t.escapeLockout;
-      ev.push({ type: 'escapeMissed', by: other(p.attacker) });
+    if (p.escape >= 1) {
+      p.active = false;
+      def.stamina = Math.max(0, def.stamina - t.escapeCost);
+      setState(def, 'idle');
+      setState(att, 'stagger');
+      att.stateTime = getStaggerDuration(att) - t.escapedStagger;
+      const d = dirTo(att, def);
+      def.vx = d.x * 2.2; def.vz = d.z * 2.2;
+      ev.push({ type: 'escape', by: other(p.attacker) });
+      return finishStep(state, t, ev);
     }
     p.progress += dt;
     if (p.progress >= t.pinCountSeconds) {
@@ -394,7 +421,7 @@ export function step(state: WrestlingState, inputs: [Inputs, Inputs], dt: number
       const dist = distance(me, op);
       // pin attempt: hold grapple next to a downed opponent
       if (inp.grapple && op.state === 'down' && dist <= t.pinRange) {
-        state.pin = { active: true, attacker: slot, count: 0, progress: 0, marker: 0, markerDir: 1, lockout: 0 };
+        state.pin = { active: true, attacker: slot, count: 0, progress: 0, escape: 0, holding: false };
         setState(me, 'pinning');
         setState(op, 'pinned');
         ev.push({ type: 'pinStart', by: slot });
@@ -433,8 +460,39 @@ export function step(state: WrestlingState, inputs: [Inputs, Inputs], dt: number
           ev.push({ type: 'shove', by: slot, strong: false });
         }
       }
+      // strikes: a punch is quick and cheap, a leg kick is slower, reaches further and can sweep a wobbling opponent
+      const kind: StrikeKind | null = inp.kickJust ? 'kick' : inp.punchJust ? 'punch' : null;
+      if (kind && !acted && me.cooldown <= 0) {
+        const cost = kind === 'kick' ? t.kickCost : t.punchCost;
+        if (me.stamina >= cost) {
+          me.stamina -= cost;
+          me.cooldown = kind === 'kick' ? t.kickCooldown : t.punchCooldown;
+          acted = true;
+          setState(me, 'strike');
+          me.strike = kind;
+          const range = kind === 'kick' ? t.kickRange : t.punchRange;
+          const hit = dist <= range && op.state !== 'down' && op.state !== 'pinned';
+          let down = false;
+          if (hit) {
+            const d = dirTo(me, op);
+            const knock = kind === 'kick' ? t.kickKnockback : t.punchKnockback;
+            op.stamina = Math.max(0, op.stamina - (kind === 'kick' ? t.kickDrain : t.punchDrain));
+            op.vx = d.x * knock * 3; op.vz = d.z * knock * 3;
+            if (kind === 'kick' && (op.state === 'stagger' || op.stamina < t.shoveDownStamina)) {
+              down = true;
+              setState(op, 'down');
+            } else {
+              const stag = kind === 'kick' ? t.kickStagger : t.punchStagger;
+              setState(op, 'stagger');
+              op.stateTime = getStaggerDuration(op) - stag;
+            }
+          }
+          if (kind === 'kick') ev.push({ type: 'kick', by: slot, hit, down });
+          else ev.push({ type: 'punch', by: slot, hit });
+        }
+      }
     }
-    if (!acted && !inp.grappleJust && !inp.shoveJust && me.state !== 'down' && me.state !== 'pinned') {
+    if (!acted && !inp.grappleJust && !inp.shoveJust && me.state !== 'down' && me.state !== 'pinned' && me.state !== 'strike') {
       me.stamina = Math.min(t.staminaMax, me.stamina + t.staminaRegen * dt * (me.moving ? 0.5 : 1));
     }
   }

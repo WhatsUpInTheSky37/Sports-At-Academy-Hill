@@ -2,7 +2,7 @@ import Phaser from 'phaser';
 import { GAME_H, GAME_W, THEME } from './constants';
 import { Storage } from './storage';
 
-export type Button = 'a' | 'b' | 'c';
+export type Button = 'a' | 'b' | 'c' | 'd';
 
 export interface ControlsOptions {
   /** Show on-screen touch controls for this player (single player / touch devices). */
@@ -17,7 +17,7 @@ export interface ControlsOptions {
   joyArea?: { x: number; y: number; w: number; h: number };
 }
 
-const KEYMAPS: Record<0 | 1, { up: number[]; down: number[]; left: number[]; right: number[]; a: number[]; b: number[]; c: number[] }> = {
+const KEYMAPS: Record<0 | 1, { up: number[]; down: number[]; left: number[]; right: number[]; a: number[]; b: number[]; c: number[]; d: number[] }> = {
   0: {
     up: [Phaser.Input.Keyboard.KeyCodes.W],
     down: [Phaser.Input.Keyboard.KeyCodes.S],
@@ -26,6 +26,7 @@ const KEYMAPS: Record<0 | 1, { up: number[]; down: number[]; left: number[]; rig
     a: [Phaser.Input.Keyboard.KeyCodes.F, Phaser.Input.Keyboard.KeyCodes.SPACE],
     b: [Phaser.Input.Keyboard.KeyCodes.G],
     c: [Phaser.Input.Keyboard.KeyCodes.H],
+    d: [Phaser.Input.Keyboard.KeyCodes.J],
   },
   1: {
     up: [Phaser.Input.Keyboard.KeyCodes.UP],
@@ -35,6 +36,7 @@ const KEYMAPS: Record<0 | 1, { up: number[]; down: number[]; left: number[]; rig
     a: [Phaser.Input.Keyboard.KeyCodes.COMMA, Phaser.Input.Keyboard.KeyCodes.ENTER, Phaser.Input.Keyboard.KeyCodes.NUMPAD_ONE],
     b: [Phaser.Input.Keyboard.KeyCodes.PERIOD, Phaser.Input.Keyboard.KeyCodes.NUMPAD_TWO],
     c: [Phaser.Input.Keyboard.KeyCodes.FORWARD_SLASH, Phaser.Input.Keyboard.KeyCodes.NUMPAD_THREE],
+    d: [Phaser.Input.Keyboard.KeyCodes.QUOTES, Phaser.Input.Keyboard.KeyCodes.NUMPAD_FOUR],
   },
 };
 
@@ -52,11 +54,11 @@ export function touchEnabled(scene: Phaser.Scene): boolean {
 export class Controls {
   readonly axis = { x: 0, y: 0 };
   private keys: Record<string, Phaser.Input.Keyboard.Key[]> = {};
-  private touchDown: Record<Button, boolean> = { a: false, b: false, c: false };
-  private down: Record<Button, boolean> = { a: false, b: false, c: false };
-  private prevDown: Record<Button, boolean> = { a: false, b: false, c: false };
-  private justFlags: Record<Button, boolean> = { a: false, b: false, c: false };
-  private releasedFlags: Record<Button, boolean> = { a: false, b: false, c: false };
+  private touchDown: Record<Button, boolean> = { a: false, b: false, c: false, d: false };
+  private down: Record<Button, boolean> = { a: false, b: false, c: false, d: false };
+  private prevDown: Record<Button, boolean> = { a: false, b: false, c: false, d: false };
+  private justFlags: Record<Button, boolean> = { a: false, b: false, c: false, d: false };
+  private releasedFlags: Record<Button, boolean> = { a: false, b: false, c: false, d: false };
   private joyBase?: Phaser.GameObjects.Arc;
   private joyKnob?: Phaser.GameObjects.Arc;
   private joyPointer: Phaser.Input.Pointer | null = null;
@@ -102,7 +104,7 @@ export class Controls {
     }
     this.axis.x = x;
     this.axis.y = y;
-    for (const b of ['a', 'b', 'c'] as Button[]) {
+    for (const b of ['a', 'b', 'c', 'd'] as Button[]) {
       this.prevDown[b] = this.down[b];
       this.down[b] = this.keyDown(b) || this.touchDown[b];
       this.justFlags[b] = this.down[b] && !this.prevDown[b];
@@ -127,13 +129,15 @@ export class Controls {
     this.container = c;
     const labels = this.opts.labels ?? { a: 'A', b: 'B', c: 'C' };
     const colors = this.opts.colors ?? {};
-    const defaults: Record<Button, number> = { a: 0xf5c518, b: 0x4fc3f7, c: 0xef5350 };
+    const defaults: Record<Button, number> = { a: 0xf5c518, b: 0x4fc3f7, c: 0xef5350, d: 0x8bc34a };
     // Buttons: bottom-right cluster.
-    const buttons = (['a', 'b', 'c'] as Button[]).filter((b) => labels[b] !== undefined);
+    const buttons = (['a', 'b', 'c', 'd'] as Button[]).filter((b) => labels[b] !== undefined);
     const positions: Record<number, { x: number; y: number }[]> = {
       1: [{ x: GAME_W - 150, y: GAME_H - 190 }],
       2: [{ x: GAME_W - 130, y: GAME_H - 290 }, { x: GAME_W - 300, y: GAME_H - 150 }],
       3: [{ x: GAME_W - 130, y: GAME_H - 330 }, { x: GAME_W - 280, y: GAME_H - 190 }, { x: GAME_W - 130, y: GAME_H - 120 }],
+      // diamond: a top, b left, c right, d bottom
+      4: [{ x: GAME_W - 240, y: GAME_H - 380 }, { x: GAME_W - 390, y: GAME_H - 235 }, { x: GAME_W - 100, y: GAME_H - 235 }, { x: GAME_W - 240, y: GAME_H - 100 }],
     };
     buttons.forEach((b, i) => {
       const p = positions[buttons.length][i];
@@ -141,7 +145,7 @@ export class Controls {
       const col = colors[b] ?? defaults[b];
       const ring = scene.add.circle(p.x, p.y, r + 6, 0x000000, 0.25);
       const circle = scene.add.circle(p.x, p.y, r, col, 0.75).setStrokeStyle(4, 0xffffff, 0.8);
-      const txt = scene.add.text(p.x, p.y, labels[b] ?? '', { fontFamily: THEME.fontDisplay, fontSize: '30px', color: '#1a1a1a', align: 'center' }).setOrigin(0.5);
+      const txt = scene.add.text(p.x, p.y, labels[b] ?? '', { fontFamily: THEME.fontDisplay, fontSize: buttons.length >= 4 ? '26px' : '30px', color: '#1a1a1a', align: 'center' }).setOrigin(0.5);
       circle.setInteractive(new Phaser.Geom.Circle(r, r, r + 20), Phaser.Geom.Circle.Contains);
       circle.on('pointerdown', () => { this.touchDown[b] = true; circle.setAlpha(1); circle.setScale(0.92); });
       const up = () => { this.touchDown[b] = false; circle.setAlpha(0.75); circle.setScale(1); };

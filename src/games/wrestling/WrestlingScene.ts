@@ -8,7 +8,7 @@ import type { Controls } from '../../core/input';
 import { CharacterSprite } from '../../art/characters';
 import { createCanvas, paintLamp, roundRect, shade, rng } from '../../art/environment';
 import { paintBraidedRug, paintBulb, paintCinderWallProjected, paintConcreteHD, paintCouchHD, paintPennantHD, paintPipes, paintPosterHD, paintRoomGrade, paintShelfHD, paintWasherDryer } from '../pool/basementArt';
-import { NO_INPUT, WRESTLING_TUNING, createWrestling, escapeWindowHit, isVulnerable, other, step, vulnerabilityLeft, type Inputs, type WrestlingEvent, type WrestlingState } from './sim';
+import { NO_INPUT, WRESTLING_TUNING, createWrestling, isVulnerable, other, step, vulnerabilityLeft, type Inputs, type WrestlingEvent, type WrestlingState } from './sim';
 import { aiInputs, createAiMemory, type AiMemory } from './ai';
 
 /** Visual tuning for the wrestling scene. */
@@ -34,7 +34,6 @@ export class WrestlingScene extends BaseGameScene {
   private hudFx!: Phaser.GameObjects.Graphics;
   private staminaLabels: Phaser.GameObjects.Text[] = [];
   private countText!: Phaser.GameObjects.Text;
-  private escapeLabel!: Phaser.GameObjects.Text;
   private pinLabel!: Phaser.GameObjects.Text;
   private barLabel!: Phaser.GameObjects.Text;
   private introDone = false;
@@ -56,7 +55,7 @@ export class WrestlingScene extends BaseGameScene {
     this.hudFx = this.add.graphics().setDepth(9100);
     this.sprites = [this.makeSprite(0), this.makeSprite(1)];
     this.controls = [
-      this.makeControls(0, { labels: { a: 'GRAB / PIN', b: 'SHOVE', c: 'ESCAPE' } }),
+      this.makeControls(0, { labels: { a: 'GRAB / PIN', b: 'SHOVE', c: 'PUNCH', d: 'KICK' } }),
       this.isAI(1) ? null : this.makeControls(1, { touch: false }),
     ];
     for (const slot of [0, 1] as const) {
@@ -65,14 +64,13 @@ export class WrestlingScene extends BaseGameScene {
       this.staminaLabels.push(this.add.text(r.x + 120, r.y + 46, 'STAMINA', displayStyle(18, '#f5c518', { strokeThickness: 0 })).setDepth(9101));
     }
     this.countText = this.add.text(W / 2, H * 0.45, '', displayStyle(P ? 150 : 180, '#f5c518', { strokeThickness: 12 })).setOrigin(0.5).setDepth(9200).setVisible(false);
-    this.escapeLabel = this.add.text(W / 2, 0, '', displayStyle(26, '#ffffff', { align: 'center' })).setOrigin(0.5).setDepth(9201).setVisible(false);
     this.pinLabel = this.add.text(0, 0, 'PIN WINDOW', displayStyle(22, '#ffeb3b', { strokeThickness: 4 })).setOrigin(0.5).setDepth(60).setVisible(false);
     const barY = P ? H - 540 : H - 82;
     this.barLabel = this.add.text(W / 2, barY - 34, 'GRAPPLE ADVANTAGE', displayStyle(20, '#f5c518', { strokeThickness: 0 })).setOrigin(0.5).setDepth(9101);
     if (!this.useTouch || this.match.mode === 'local') {
       const hint = this.match.mode === 'local'
-        ? 'P1: WASD move • F grab/pin • G shove • H escape      P2: Arrows • , grab/pin • . shove • / escape'
-        : 'WASD move • F grab/pin • G shove/takedown • H escape';
+        ? 'P1: WASD move • F grab/pin • G shove • H punch • J kick      P2: Arrows • , grab/pin • . shove • / punch • \' kick      Pinned? HOLD any button to break free'
+        : 'WASD move • F grab/pin • G shove/takedown • H punch • J kick • pinned? HOLD any button to break free';
       this.add.text(W / 2, barY + 42, hint, textStyle(P ? 18 : 20, '#fff3c4', { align: 'center', wordWrap: { width: W - 60 } })).setOrigin(0.5, 0).setDepth(9101);
     }
     this.setSub('First three-count wins the belt');
@@ -374,8 +372,8 @@ export class WrestlingScene extends BaseGameScene {
       step(this.state, inputs, h);
       for (const e of this.state.events) this.handleEvent(e);
       // one-shot inputs only apply to the first substep
-      inputs[0].grappleJust = inputs[0].shoveJust = inputs[0].escapeJust = false;
-      inputs[1].grappleJust = inputs[1].shoveJust = inputs[1].escapeJust = false;
+      inputs[0].grappleJust = inputs[0].shoveJust = inputs[0].punchJust = inputs[0].kickJust = false;
+      inputs[1].grappleJust = inputs[1].shoveJust = inputs[1].punchJust = inputs[1].kickJust = false;
       if (this.state.phase === 'done') break;
     }
     this.render();
@@ -385,7 +383,8 @@ export class WrestlingScene extends BaseGameScene {
     if (this.isAI(slot)) return aiInputs(this.state, slot, this.ai, dt, this.aiMem);
     const c = this.controls[slot];
     if (!c) return { ...NO_INPUT };
-    return { x: c.axis.x, y: -c.axis.y, grapple: c.isDown('a'), grappleJust: c.justDown('a'), shoveJust: c.justDown('b'), escapeJust: c.justDown('c') };
+    const anyHeld = c.isDown('a') || c.isDown('b') || c.isDown('c') || c.isDown('d');
+    return { x: c.axis.x, y: -c.axis.y, grapple: c.isDown('a'), grappleJust: c.justDown('a'), shoveJust: c.justDown('b'), punchJust: c.justDown('c'), kickJust: c.justDown('d'), escape: anyHeld };
   }
 
   private screenOf(slot: 0 | 1): { x: number; y: number } {
@@ -435,7 +434,27 @@ export class WrestlingScene extends BaseGameScene {
         this.react(e.by, 'cheer', p.x, p.y - 170);
         break;
       }
-      case 'escapeMissed': Audio.sfx('click'); break;
+      case 'punch': {
+        if (!e.hit) { Audio.sfx('swing'); break; }
+        Audio.sfx('slap');
+        const p = pos(other(e.by));
+        impact(this, p.x, p.y - 110, 0xffffff, 8, 60, 6);
+        break;
+      }
+      case 'kick': {
+        if (!e.hit) { Audio.sfx('swing'); break; }
+        Audio.sfx(e.down ? 'thud' : 'slap');
+        const p = pos(other(e.by));
+        impact(this, p.x, p.y - 50, 0xffd54f, e.down ? 14 : 10, 70, 8);
+        if (e.down) {
+          shake(this, 0.005, 160);
+          this.announce('LEG SWEEP!', { size: P ? 54 : 64, hold: 700, color: '#ffeb3b' });
+          if (Math.random() < 0.6) this.react(e.by, 'taunt', pos(e.by).x, pos(e.by).y - 170);
+        } else {
+          shake(this, 0.003, 100);
+        }
+        break;
+      }
       case 'ringOut': {
         Audio.sfx('whistle');
         this.announce('OUT OF THE RING!', { size: P ? 50 : 64, hold: 900, color: '#ef5350', sub: 'Back to the middle, you two.' });
@@ -505,6 +524,7 @@ export class WrestlingScene extends BaseGameScene {
           case 'down': sp.setPose('down'); break;
           case 'pinned': sp.setPose('down'); break;
           case 'pinning': sp.setPose('push'); break;
+          case 'strike': sp.setPose(w.strike === 'kick' ? 'kick' : 'punch'); break;
         }
       }
       // vulnerability indicator
@@ -551,53 +571,44 @@ export class WrestlingScene extends BaseGameScene {
       hud.fillStyle(f > 0.5 ? 0xf5c518 : f > 0.25 ? 0xff8a2a : 0xef5350, 1);
       if (f > 0) hud.fillRoundedRect(x, y, w * f, h, 6);
     }
-    // grapple advantage bar (bottom centre)
+    // bottom-centre panel: the grapple advantage bar, or the escape bar while a pin is on
     const bw = P ? W - 360 : 520, bh = 28;
     const bx = W / 2 - bw / 2, by = P ? H - 540 : H - 82;
     hud.fillStyle(0x0d1f10, 0.85);
     hud.fillRoundedRect(bx - 16, by - 44, bw + 32, bh + 60, 14);
-    hud.lineStyle(3, THEME.accent, 0.8);
+    hud.lineStyle(3, s.pin.active ? 0xef5350 : THEME.accent, 0.8);
     hud.strokeRoundedRect(bx - 16, by - 44, bw + 32, bh + 60, 14);
-    hud.fillStyle(0x333333, 1);
-    hud.fillRoundedRect(bx, by, bw, bh, 8);
-    const adv = s.grapple.active ? s.grapple.advantage : 0;
-    const split = (adv + 1) / 2;
-    hud.fillStyle(this.players[0].character.accent, s.grapple.active ? 1 : 0.35);
-    hud.fillRoundedRect(bx, by, bw * split, bh, { tl: 8, bl: 8, tr: 0, br: 0 });
-    hud.fillStyle(this.players[1].character.accent, s.grapple.active ? 1 : 0.35);
-    hud.fillRoundedRect(bx + bw * split, by, bw * (1 - split), bh, { tl: 0, bl: 0, tr: 8, br: 8 });
-    hud.fillStyle(0xffffff, 1);
-    hud.fillRect(bx + bw * split - 3, by - 6, 6, bh + 12);
-    this.barLabel.setText(s.grapple.active ? (P ? 'TUG! push + tap GRAB • SHOVE = takedown' : 'GRAPPLE ADVANTAGE — push toward them, tap GRAB, SHOVE to take down') : 'GRAPPLE ADVANTAGE');
-    // escape bar while a pin is active
     if (s.pin.active) {
       const def = other(s.pin.attacker);
-      const ew = P ? W - 200 : 620, eh = 34;
-      const ex = W / 2 - ew / 2, ey = P ? H * 0.62 : H * 0.72;
-      hud.fillStyle(0x0d1f10, 0.9);
-      hud.fillRoundedRect(ex - 20, ey - 60, ew + 40, eh + 90, 16);
-      hud.lineStyle(4, 0xef5350, 0.9);
-      hud.strokeRoundedRect(ex - 20, ey - 60, ew + 40, eh + 90, 16);
       hud.fillStyle(0x333333, 1);
-      hud.fillRoundedRect(ex, ey, ew, eh, 8);
-      const win = t.escapeWindow;
-      hud.fillStyle(0x8bc34a, 1);
-      hud.fillRect(ex + ew * (0.5 - win / 2), ey, ew * win, eh);
-      const inWin = escapeWindowHit(s.pin.marker);
-      hud.fillStyle(s.pin.lockout > 0 ? 0xef5350 : inWin ? 0xffffff : 0xf5c518, 1);
-      hud.fillRoundedRect(ex + ew * s.pin.marker - 6, ey - 8, 12, eh + 16, 4);
-      const human = !this.isAI(def);
-      this.escapeLabel.setVisible(true).setPosition(W / 2, ey - 34)
-        .setText(human ? `${this.name(def).toUpperCase()}: TAP ESCAPE WHEN THE MARKER IS IN THE GREEN${s.pin.lockout > 0 ? '  (locked!)' : ''}` : `${this.name(s.pin.attacker).toUpperCase()} HAS THE PIN — ${this.name(def)} is trying to escape`)
-        .setColor(s.pin.lockout > 0 ? '#ef5350' : '#ffffff');
-      // count progress
+      hud.fillRoundedRect(bx, by, bw, bh, 8);
+      const esc = s.pin.escape;
+      const pulse = s.pin.holding ? 0.85 + 0.15 * Math.sin(s.time * 18) : 0.7;
+      hud.fillStyle(s.pin.holding ? 0x8bc34a : 0x689f38, pulse);
+      if (esc > 0) hud.fillRoundedRect(bx, by, Math.max(bh, bw * esc), bh, 8);
+      hud.lineStyle(3, 0xffffff, 0.5);
+      hud.strokeRoundedRect(bx, by, bw, bh, 8);
+      // count progress under the escape bar
       const cp = (s.pin.count + s.pin.progress / t.pinCountSeconds) / t.pinCounts;
       hud.fillStyle(0x222222, 1);
-      hud.fillRoundedRect(ex, ey + eh + 10, ew, 12, 6);
+      hud.fillRoundedRect(bx, by + bh + 6, bw, 8, 4);
       hud.fillStyle(0xf5c518, 1);
-      hud.fillRoundedRect(ex, ey + eh + 10, ew * cp, 12, 6);
+      hud.fillRoundedRect(bx, by + bh + 6, bw * cp, 8, 4);
+      const human = !this.isAI(def);
+      this.barLabel.setText(human ? `${this.name(def).toUpperCase()}: HOLD ANY BUTTON TO BREAK FREE!` : `${this.name(s.pin.attacker).toUpperCase()} HAS THE PIN — ${this.name(def)} is fighting it`)
+        .setColor(s.pin.holding ? '#c5e1a5' : '#ffffff');
     } else {
-      this.escapeLabel.setVisible(false);
+      hud.fillStyle(0x333333, 1);
+      hud.fillRoundedRect(bx, by, bw, bh, 8);
+      const adv = s.grapple.active ? s.grapple.advantage : 0;
+      const split = (adv + 1) / 2;
+      hud.fillStyle(this.players[0].character.accent, s.grapple.active ? 1 : 0.35);
+      hud.fillRoundedRect(bx, by, bw * split, bh, { tl: 8, bl: 8, tr: 0, br: 0 });
+      hud.fillStyle(this.players[1].character.accent, s.grapple.active ? 1 : 0.35);
+      hud.fillRoundedRect(bx + bw * split, by, bw * (1 - split), bh, { tl: 0, bl: 0, tr: 8, br: 8 });
+      hud.fillStyle(0xffffff, 1);
+      hud.fillRect(bx + bw * split - 3, by - 6, 6, bh + 12);
+      this.barLabel.setText(s.grapple.active ? (P ? 'TUG! push + tap GRAB • SHOVE = takedown' : 'GRAPPLE ADVANTAGE — push toward them, tap GRAB, SHOVE to take down') : 'GRAPPLE ADVANTAGE').setColor('#f5c518');
     }
     // status line
     if (s.phase === 'fight') {
@@ -608,6 +619,7 @@ export class WrestlingScene extends BaseGameScene {
       else if (a.state === 'down') msg = `${this.name(0)} is down — ${this.name(1)} can pin!`;
       else if (b.state === 'down') msg = `${this.name(1)} is down — ${this.name(0)} can pin!`;
       else if (a.state === 'stagger' || b.state === 'stagger') msg = `${a.state === 'stagger' ? this.name(0) : this.name(1)} is staggered!`;
+      else msg = 'Punch and kick to wear them down, then shove or grapple for the takedown';
       this.setStatus(msg);
     } else if (s.phase === 'ringout') {
       this.setStatus('Back in the ring!');

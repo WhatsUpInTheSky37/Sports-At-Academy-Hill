@@ -12,7 +12,8 @@ export type BasePoseName =
   | 'idle0' | 'idle1' | 'run0' | 'run1' | 'run2' | 'run3' | 'swing0' | 'swing1' | 'swing2'
   | 'shoot0' | 'shoot1' | 'throw0' | 'throw1' | 'cheer0' | 'cheer1' | 'sad' | 'grapple' | 'down' | 'crouch' | 'push' | 'dizzy'
   | 'bat0' | 'bat1' | 'bat2' | 'bat3'
-  | 'skate0' | 'skate1' | 'goalie' | 'wrist';
+  | 'skate0' | 'skate1' | 'goalie' | 'wrist'
+  | 'punch' | 'kick';
 /** Every pose also exists as a back view (`back-<pose>`) for behind-the-player camera angles. */
 export type PoseName = BasePoseName | `back-${BasePoseName}`;
 
@@ -64,6 +65,9 @@ const BASE_POSES: Record<BasePoseName, Pose> = {
   goalie: { lArm: 52, rArm: 52, lBend: 48, rBend: 48, lLeg: 40, rLeg: -40, face: 'focus', crouch: 0.48, armsFront: true },
   // wrist shot follow-through: hands pushed forward and across
   wrist: { lArm: 88, rArm: 60, lBend: 20, rBend: 35, lLeg: 28, rLeg: -24, face: 'shout', lean: 10, crouch: 0.24, armsFront: true },
+  // wrestling strikes: a straight punch (lead arm out, rear arm guarding) and a leg kick (lead leg swung high)
+  punch: { lArm: 92, rArm: 40, lBend: 0, rBend: 100, lLeg: 28, rLeg: -22, face: 'shout', lean: 10, crouch: 0.18, armsFront: true },
+  kick: { lArm: 55, rArm: 25, lBend: 60, rBend: 70, lLeg: 85, rLeg: -8, face: 'shout', lean: -12, crouch: 0.06, armsFront: true },
 };
 
 /**

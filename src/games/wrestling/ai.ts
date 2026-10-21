@@ -1,4 +1,4 @@
-import { NO_INPUT, WRESTLING_TUNING, distance, escapeWindowHit, other, type Inputs, type WrestlingState } from './sim';
+import { NO_INPUT, WRESTLING_TUNING, distance, other, type Inputs, type WrestlingState } from './sim';
 
 /** Per-AI scratch memory between frames. */
 export interface AiMemory {
@@ -6,20 +6,18 @@ export interface AiMemory {
   mode: 'approach' | 'circle' | 'retreat' | 'pin';
   circleDir: 1 | -1;
   circleTimer: number;
-  escapeTried: boolean;
-  escapeError: number;
+  /** Seconds of the current pin before the AI starts fighting it. */
+  escapeDelay: number;
   grappleTapTimer: number;
 }
 
 export function createAiMemory(): AiMemory {
-  return { decideTimer: 0, mode: 'approach', circleDir: 1, circleTimer: 0, escapeTried: false, escapeError: 0, grappleTapTimer: 0 };
+  return { decideTimer: 0, mode: 'approach', circleDir: 1, circleTimer: 0, escapeDelay: -1, grappleTapTimer: 0 };
 }
 
-function gaussian(sd: number, rand: () => number): number {
-  let u = 0, v = 0;
-  while (u === 0) u = rand();
-  while (v === 0) v = rand();
-  return Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * v) * sd;
+/** How the CPU fights a pin at a given level: seconds before it reacts, and the share of time it keeps the button held. */
+export function aiEscapeProfile(level: number): { delay: number; hold: number } {
+  return { delay: 0.9 - 0.7 * level, hold: 0.5 + 0.5 * level };
 }
 
 /**
@@ -32,7 +30,7 @@ export function aiInputs(state: WrestlingState, slot: 0 | 1, level: number, dt: 
   const op = state.w[other(slot)];
   const inp: Inputs = { ...NO_INPUT };
   if (state.phase !== 'fight') return inp;
-  const reaction = 0.42 - 0.3 * level;
+  const reaction = 0.55 - 0.35 * level;
   mem.decideTimer -= dt;
   mem.circleTimer -= dt;
   mem.grappleTapTimer -= dt;
@@ -42,23 +40,18 @@ export function aiInputs(state: WrestlingState, slot: 0 | 1, level: number, dt: 
   const nx = dist > 0 ? dx / dist : 1;
   const nz = dist > 0 ? dz / dist : 0;
 
-  // ---- pinned: use the escape timing mechanic ----
+  // ---- pinned: hold to escape, after a reaction delay and with a level-dependent grip ----
   if (me.state === 'pinned') {
-    const p = state.pin;
-    if (p.markerDir === 1 && p.marker < 0.1) mem.escapeTried = false;
-    if (p.markerDir === -1 && p.marker > 0.9) mem.escapeTried = false;
-    if (!mem.escapeTried && p.lockout <= 0) {
-      if (mem.escapeError === 0) mem.escapeError = gaussian(0.16 - 0.12 * level, rand);
-      const perceived = p.marker + mem.escapeError;
-      if (escapeWindowHit(perceived) && rand() < 0.55 + 0.45 * level) {
-        inp.escapeJust = true;
-        mem.escapeTried = true;
-        mem.escapeError = 0;
-      }
+    const prof = aiEscapeProfile(level);
+    if (mem.escapeDelay < 0) mem.escapeDelay = prof.delay * (0.8 + 0.4 * rand());
+    if (me.stateTime >= mem.escapeDelay) {
+      const cycle = 0.6;
+      inp.escape = (me.stateTime % cycle) < cycle * prof.hold;
     }
     return inp;
   }
-  if (me.state === 'down' || me.state === 'pinning') {
+  mem.escapeDelay = -1;
+  if (me.state === 'down' || me.state === 'pinning' || me.state === 'strike') {
     if (me.state === 'pinning') inp.grapple = true;
     return inp;
   }
@@ -68,7 +61,7 @@ export function aiInputs(state: WrestlingState, slot: 0 | 1, level: number, dt: 
     inp.x = nx; inp.y = nz;
     if (mem.grappleTapTimer <= 0) {
       inp.grappleJust = true;
-      mem.grappleTapTimer = 0.45 - 0.25 * level + rand() * 0.2;
+      mem.grappleTapTimer = 0.6 - 0.35 * level + rand() * 0.2;
     }
     const adv = slot === 0 ? state.grapple.advantage : -state.grapple.advantage;
     const threshold = 0.45 - 0.3 * level;
@@ -122,8 +115,12 @@ export function aiInputs(state: WrestlingState, slot: 0 | 1, level: number, dt: 
     if (dist <= t.shoveRange && op.state === 'stagger' && (behind || tired) && me.stamina >= t.shoveCost && me.cooldown <= 0) inp.shoveJust = true;
     else if (dist <= t.grappleRange && op.state === 'stagger' && me.stamina >= t.grappleCost + 10) inp.grappleJust = true;
     else if (dist <= t.shoveRange && behind && me.stamina >= t.shoveCost && me.cooldown <= 0 && rand() < 0.5 + 0.4 * level) inp.shoveJust = true;
-    else if (dist <= t.grappleRange && me.stamina >= t.grappleCost + 15 && rand() < 0.5 + 0.45 * level) inp.grappleJust = true;
-    else if (dist <= t.shoveRange && me.stamina >= t.shoveCost + 10 && me.cooldown <= 0 && rand() < 0.15 + 0.2 * level) inp.shoveJust = true;
+    else if (dist <= t.kickRange && op.state === 'stagger' && me.stamina >= t.kickCost + 5 && me.cooldown <= 0 && rand() < 0.3 + 0.5 * level) inp.kickJust = true;
+    else if (dist <= t.punchRange && me.stamina >= t.punchCost + 10 && me.cooldown <= 0 && rand() < 0.3 + 0.3 * level) inp.punchJust = true;
+    else if (dist <= t.kickRange && dist > t.grappleRange && me.stamina >= t.kickCost + 10 && me.cooldown <= 0 && rand() < 0.25 + 0.3 * level) inp.kickJust = true;
+    else if (dist <= t.grappleRange && me.stamina >= t.grappleCost + 15 && rand() < 0.3 + 0.55 * level) inp.grappleJust = true;
+    else if (dist <= t.kickRange && me.stamina >= t.kickCost + 10 && me.cooldown <= 0 && rand() < 0.1 + 0.3 * level) inp.kickJust = true;
+    else if (dist <= t.shoveRange && me.stamina >= t.shoveCost + 10 && me.cooldown <= 0 && rand() < 0.1 + 0.2 * level) inp.shoveJust = true;
   }
   return inp;
 }
