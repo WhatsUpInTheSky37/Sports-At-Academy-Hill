@@ -5,7 +5,8 @@ import { Audio } from '../core/audio';
 import { Storage } from '../core/storage';
 import { CHARACTERS } from '../core/characters';
 import { CharacterSprite } from '../art/characters';
-import { createCanvas, paintGrass, paintSky, paintTreeSide } from '../art/environment';
+import { createCanvas, paintCypress, paintHaze, paintLawnHD, paintPineHD, paintSkyHD, paintTreeHD, paintVignette, rng } from '../art/environment';
+import { Projector } from '../core/projection';
 import { syncOrientation, watchOrientation } from '../core/layout';
 
 export class MenuScene extends Phaser.Scene {
@@ -26,7 +27,7 @@ export class MenuScene extends Phaser.Scene {
     } else {
       this.add.text(W / 2, P ? 70 : 30, 'SPORTS AT', displayStyle(P ? 54 : 48, '#fff3c4')).setOrigin(0.5, 0);
       this.add.text(W / 2, P ? 130 : 84, 'ACADEMY HILL', displayStyle(P ? 96 : 88, '#f5c518', { strokeThickness: 10 })).setOrigin(0.5, 0);
-      this.add.text(W / 2, P ? 250 : 190, 'Seven homemade sports. Best friends. One afternoon.', textStyle(26, '#fff3c4', { fontStyle: 'italic' })).setOrigin(0.5, 0);
+      this.add.text(W / 2, P ? 250 : 190, 'Seven homemade sports. Best friends. One afternoon.', displayStyle(26, '#fff3c4', { fontStyle: 'italic', strokeThickness: 4 })).setOrigin(0.5, 0);
     }
     const askY = P ? 440 : 330;
     this.add.text(W / 2, askY, 'What game do you want to play?', displayStyle(P ? 40 : 40, '#ffffff')).setOrigin(0.5, 0);
@@ -65,7 +66,7 @@ export class MenuScene extends Phaser.Scene {
     makeButton(this, W / 2 - 230, by, 'SETTINGS', () => this.scene.start('SettingsScene'), { width: 420, height: 86, fontSize: 30, color: THEME.accent2 });
     makeButton(this, W / 2 + 230, by, 'RECORDS', () => this.scene.start('RecordsScene'), { width: 420, height: 86, fontSize: 30, color: 0x4fc3f7 });
     const r = Storage.records;
-    this.add.text(W / 2, by + 60, `Matches played: ${r.matchesPlayed}   •   Sound ${s.soundOn ? 'on' : 'off'}, music ${s.musicOn ? 'on' : 'off'}`, textStyle(22, '#fff3c4')).setOrigin(0.5, 0);
+    this.add.text(W / 2, by + 60, `Matches played: ${r.matchesPlayed}   •   Sound ${s.soundOn ? 'on' : 'off'}, music ${s.musicOn ? 'on' : 'off'}`, displayStyle(22, '#fff3c4', { strokeThickness: 3 })).setOrigin(0.5, 0);
     this.add.text(W / 2, H - 20, 'Plays in portrait or landscape. Local two-player wrestling, hockey and football need a keyboard.', textStyle(20, '#fff3c4', { align: 'center', wordWrap: { width: W - 100 } })).setOrigin(0.5, 1);
     makeIconButton(this, W - 60, H - 70, s.musicOn ? '♪' : '✕', () => {
       Storage.updateSettings({ musicOn: !Storage.settings.musicOn });
@@ -83,16 +84,35 @@ export class MenuScene extends Phaser.Scene {
     const key = `menu-bg-${W}x${H}`;
     if (!this.textures.exists(key)) {
       const { canvas, ctx } = createCanvas(W, H);
-      const horizon = Math.round(H * 0.42);
-      paintSky(ctx, W, H, horizon);
-      paintGrass(ctx, 0, horizon - 20, W, H - horizon + 20, 7, '#4f8f36');
-      const n = Math.ceil(W / 125);
-      for (let i = 0; i < n; i++) paintTreeSide(ctx, 60 + i * 125, horizon + 20, 110 + (i % 3) * 20, 30 + i);
+      const horizon = Math.round(H * 0.4);
+      const pr = new Projector({ camZ: 6, camH: 2.2, horizonY: horizon, focal: W > H ? 1150 : 1250, cx: W / 2 });
+      const r = rng(33);
+      paintSkyHD(ctx, W, H, horizon + 2, { sunX: W * 0.7, sunY: horizon * 0.3 });
+      const woods: { x: number; z: number; s: number; seed: number }[] = [];
+      for (let i = 0; i < 40; i++) woods.push({ x: -90 + i * 4.6 + r() * 3, z: 52 + r() * 40, s: 7 + r() * 6, seed: 100 + i });
+      woods.sort((a, b) => b.z - a.z).forEach((t) => {
+        const p = pr.project(t.x, 0, t.z);
+        const haze = Math.min(0.8, 0.3 + (t.z - 40) / 70);
+        if (t.seed % 3 === 0) paintPineHD(ctx, p.sx, p.sy, t.s * 1.3 * p.scale, t.seed, { haze });
+        else paintTreeHD(ctx, p.sx, p.sy, t.s * p.scale, t.seed, { haze });
+      });
+      paintHaze(ctx, W, horizon, 110);
+      paintLawnHD(ctx, pr, { x0: -60, x1: 60, z0: -6, z1: 46 }, { seed: 4, base: '#5a9a3a', stripeWidth: 3.4 });
+      const trees: { x: number; z: number; h: number; seed: number }[] = [];
+      for (let x = -46; x <= 46; x += 2.1) trees.push({ x: x + (r() - 0.5) * 0.5, z: 40 + r() * 0.8, h: 1.7 * (0.9 + r() * 0.35), seed: 300 + Math.round(x * 3) });
+      trees.map((t) => ({ ...t, z: t.z + 2, h: t.h * 1.3, seed: t.seed + 1000 })).concat(trees).sort((a, b) => b.z - a.z).forEach((t) => {
+        const p = pr.project(t.x, 0, t.z);
+        const haze = Math.max(0, Math.min(0.45, (t.z - 20) / 90));
+        if (t.seed % 7 === 0) paintPineHD(ctx, p.sx, p.sy, t.h * p.scale * 1.1, t.seed, { haze });
+        else paintCypress(ctx, p.sx, p.sy, t.h * p.scale, t.seed, { haze });
+      });
+      // darken the lower two thirds so the menu cards stay readable
       const g = ctx.createLinearGradient(0, horizon, 0, H);
-      g.addColorStop(0, 'rgba(20,48,26,0.25)');
+      g.addColorStop(0, 'rgba(20,48,26,0.15)');
       g.addColorStop(1, 'rgba(20,48,26,0.8)');
       ctx.fillStyle = g;
       ctx.fillRect(0, horizon, W, H - horizon);
+      paintVignette(ctx, W, H, 0.3);
       this.textures.addCanvas(key, canvas);
     }
     this.add.image(W / 2, H / 2, key);

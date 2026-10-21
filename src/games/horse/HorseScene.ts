@@ -5,7 +5,7 @@ import { Projector } from '../../core/projection';
 import { Audio } from '../../core/audio';
 import { Meter, displayStyle, textStyle, makeButton, impact, confetti } from '../../core/ui';
 import { CharacterSprite } from '../../art/characters';
-import { createCanvas, paintGrass, paintPine, paintSky, paintTreeSide, rng } from '../../art/environment';
+import { createCanvas, paintAsphalt, paintCypress, paintHaze, paintLawnHD, paintPineHD, paintSkyHD, paintTreeHD, paintVignette, rng } from '../../art/environment';
 import { DEFAULT_SHOT, SPOTS, aiChooseSpot, aiShot, simulateShot, type ShotConfig, type ShotResult, type Spot } from './shot';
 import { applyShot, chooseSpot, createHorse, lettersDisplay, type HorseState } from './rules';
 
@@ -47,7 +47,6 @@ export class HorseScene extends BaseGameScene {
   private court!: Phaser.GameObjects.Graphics;
   private hoopFront!: Phaser.GameObjects.Graphics;
   private hoopBack!: Phaser.GameObjects.Graphics;
-  private house!: Phaser.GameObjects.Graphics;
   private spotZones: Phaser.GameObjects.Zone[] = [];
   private spotTitle!: Phaser.GameObjects.Text;
   private reticle!: Phaser.GameObjects.Container;
@@ -86,9 +85,7 @@ export class HorseScene extends BaseGameScene {
     this.aim = { x: 0, y: 0 };
     this.phase = 'idle';
     this.setProjector(SPOTS[this.spotIndex]);
-    this.paintBackground();
     this.court = this.add.graphics().setDepth(10);
-    this.house = this.add.graphics().setDepth(14);
     this.hoopBack = this.add.graphics().setDepth(30);
     this.hoopFront = this.add.graphics().setDepth(46);
     this.waiter = new CharacterSprite(this, 0, 0, this.players[1].character, 1);
@@ -117,38 +114,234 @@ export class HorseScene extends BaseGameScene {
     this.proj = new Projector({ camZ: -camWorldZ, camH: HORSE_VISUAL.camH, horizonY: this.horizon, focal: this.focal, cx: this.W / 2, camX });
   }
 
+  private bgImage?: Phaser.GameObjects.Image;
+
+  /**
+   * Static scenery for the current camera (one texture per shooting spot): sky, hazy woods, the
+   * evergreen line behind the fence, lawn, fence, the asphalt driveway and the house wall beside it.
+   */
   private paintBackground(): void {
     const W = this.W, H = this.H;
-    const key = `horse-bg-${W}x${H}`;
+    const key = `horse-bg-${W}x${H}-${this.spotIndex}`;
     if (!this.textures.exists(key)) {
       const { canvas, ctx } = createCanvas(W, H);
+      const pr = this.proj;
       const horizon = this.horizon;
-      paintSky(ctx, W, H, horizon + 2);
-      // warm evening tint on the sky
-      const warm = ctx.createLinearGradient(0, 0, 0, horizon);
-      warm.addColorStop(0, 'rgba(255,170,80,0)');
-      warm.addColorStop(1, 'rgba(255,190,110,0.35)');
-      ctx.fillStyle = warm;
-      ctx.fillRect(0, 0, W, horizon);
-      paintGrass(ctx, 0, horizon - 4, W, H - horizon + 4, 13, '#5b9638');
-      // far tree line just above the horizon (behind the fence)
-      const r = rng(41);
-      const n = Math.ceil(W / 90) + 2;
-      for (let i = 0; i < n; i++) {
-        const x = -40 + i * 90 + r() * 30;
-        const big = i % 3 === 0;
-        if (big) paintTreeSide(ctx, x, horizon + 6, 150 + r() * 60, 500 + i);
-        else paintPine(ctx, x, horizon + 8, 90 + r() * 70, 600 + i);
+      const r = rng(41 + this.spotIndex);
+      const hw = HORSE_VISUAL.driveHalfWidth;
+      const nz = this.nearZ;
+      const P = (x: number, y: number, z: number) => pr.project(x, y, z);
+      paintSkyHD(ctx, W, H, horizon + 2, { sunX: W * 0.78, sunY: horizon * 0.25, seed: 23 });
+      // woods behind the neighbourhood, hazy with distance
+      const woods: { x: number; z: number; s: number; seed: number }[] = [];
+      for (let i = 0; i < 44; i++) woods.push({ x: -90 + i * 4.4 + r() * 3, z: 30 + r() * 45, s: 5 + r() * 4, seed: 100 + i });
+      woods.sort((a, b) => b.z - a.z).forEach((t) => {
+        const p = P(t.x, 0, t.z);
+        const haze = Math.min(0.82, 0.4 + (t.z - 25) / 70);
+        if (t.seed % 3 === 0) paintPineHD(ctx, p.sx, p.sy, t.s * 1.3 * p.scale, t.seed, { haze });
+        else paintTreeHD(ctx, p.sx, p.sy, t.s * p.scale, t.seed, { haze });
+      });
+      paintHaze(ctx, W, horizon, 90);
+      // lawn everywhere (the driveway is painted over it)
+      paintLawnHD(ctx, pr, { x0: -30, x1: 30, z0: nz - 1, z1: 14 }, { seed: 13, base: '#5a9a3a', stripeWidth: 3.2 });
+      // childhood-sized evergreen line just behind the fence, with gaps
+      const hedge: { x: number; z: number; h: number; seed: number }[] = [];
+      for (let x = -24; x <= 24; x += 2.0) hedge.push({ x: x + (r() - 0.5) * 0.6, z: 4.6 + r() * 1.2, h: 1.6 + r() * 0.6, seed: 600 + Math.round(x * 3) });
+      for (let z = 5; z < 13; z += 2.0) hedge.push({ x: 9.5 + (r() - 0.5) * 0.5, z, h: 1.7 + r() * 0.5, seed: 700 + Math.round(z * 3) });
+      hedge.sort((a, b) => b.z - a.z).forEach((t) => {
+        const p = P(t.x, 0, t.z);
+        if (!p.visible) return;
+        if (t.seed % 6 === 0) paintPineHD(ctx, p.sx, p.sy, t.h * 1.1 * p.scale, t.seed, { haze: 0.05 });
+        else paintCypress(ctx, p.sx, p.sy, t.h * p.scale, t.seed, { haze: 0.05 });
+      });
+      // wooden picket fence behind the hoop
+      const fz = 3.2;
+      const railL = P(-16, 0, fz), railR = P(16, 0, fz);
+      if (railL.visible && railR.visible) {
+        for (let x = -16; x <= 16; x += 0.32) {
+          const b = P(x, 0, fz), t = P(x, 1.5, fz);
+          if (!b.visible) continue;
+          const g = ctx.createLinearGradient(b.sx - 0.1 * b.scale, 0, b.sx + 0.1 * b.scale, 0);
+          g.addColorStop(0, '#9a7449'); g.addColorStop(0.5, '#7a5a3a'); g.addColorStop(1, '#4f3a22');
+          ctx.fillStyle = g;
+          ctx.fillRect(b.sx - 0.1 * b.scale, t.sy, 0.2 * b.scale, b.sy - t.sy);
+          ctx.fillStyle = '#9a7449';
+          ctx.beginPath(); ctx.moveTo(b.sx - 0.1 * b.scale, t.sy); ctx.lineTo(b.sx, t.sy - 0.08 * b.scale); ctx.lineTo(b.sx + 0.1 * b.scale, t.sy); ctx.closePath(); ctx.fill();
+        }
+        for (const yy of [0.5, 1.15]) {
+          const l = P(-16, yy, fz), rr = P(16, yy, fz);
+          ctx.fillStyle = '#5c4128';
+          ctx.fillRect(l.sx, l.sy - 3, rr.sx - l.sx, 6);
+          ctx.fillStyle = 'rgba(255,230,190,0.25)';
+          ctx.fillRect(l.sx, l.sy - 3, rr.sx - l.sx, 2);
+        }
+        // fence shadow on the lawn and a flower bed in front
+        const sh = ctx.createLinearGradient(0, railL.sy, 0, railL.sy + 0.6 * railL.scale);
+        sh.addColorStop(0, 'rgba(0,0,0,0.3)'); sh.addColorStop(1, 'rgba(0,0,0,0)');
+        ctx.fillStyle = sh;
+        ctx.fillRect(railL.sx, railL.sy, railR.sx - railL.sx, 0.6 * railL.scale);
+        for (let x = -8; x <= 8; x += 0.5) {
+          const p = P(x, 0, fz - 0.4);
+          ctx.fillStyle = '#2f6b2a';
+          ctx.beginPath(); ctx.ellipse(p.sx, p.sy - 0.1 * p.scale, 0.22 * p.scale, 0.14 * p.scale, 0, 0, Math.PI * 2); ctx.fill();
+          ctx.fillStyle = ['#e53935', '#ffc107', '#f06292', '#ffffff'][Math.floor(Math.abs(x) * 2) % 4];
+          ctx.beginPath(); ctx.arc(p.sx, p.sy - 0.2 * p.scale, 0.09 * p.scale, 0, Math.PI * 2); ctx.fill();
+        }
       }
-      // low evening light wash over the lawn
-      const wash = ctx.createLinearGradient(0, horizon, 0, H);
-      wash.addColorStop(0, 'rgba(255,200,120,0.18)');
-      wash.addColorStop(1, 'rgba(255,200,120,0)');
-      ctx.fillStyle = wash;
-      ctx.fillRect(0, horizon, W, H - horizon);
+      // driveway: asphalt clipped to the projected slab, with wear, cracks, grass in the seams and an oil stain
+      const d0 = P(-hw, 0, nz), d1 = P(hw, 0, nz), d2 = P(hw, 0, 1.2), d3 = P(-hw, 0, 1.2);
+      ctx.save();
+      ctx.beginPath(); ctx.moveTo(d0.sx, d0.sy); ctx.lineTo(d1.sx, d1.sy); ctx.lineTo(d2.sx, d2.sy); ctx.lineTo(d3.sx, d3.sy); ctx.closePath(); ctx.clip();
+      paintAsphalt(ctx, 0, d2.sy - 4, W, d0.sy - d2.sy + 8, 17, '#6c6966');
+      // lighter worn wheel tracks
+      for (const tx of [-hw * 0.55, hw * 0.55]) {
+        const a = P(tx - 0.45, 0, nz), b = P(tx + 0.45, 0, nz), c = P(tx + 0.45, 0, 1.2), d = P(tx - 0.45, 0, 1.2);
+        ctx.fillStyle = 'rgba(255,255,255,0.06)';
+        ctx.beginPath(); ctx.moveTo(a.sx, a.sy); ctx.lineTo(b.sx, b.sy); ctx.lineTo(c.sx, c.sy); ctx.lineTo(d.sx, d.sy); ctx.closePath(); ctx.fill();
+      }
+      // expansion seam down the middle with grass growing in it
+      const s0 = P(0.05, 0, nz), s1 = P(0.05, 0, 1.2);
+      ctx.strokeStyle = 'rgba(0,0,0,0.35)'; ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.moveTo(s0.sx, s0.sy); ctx.lineTo(s1.sx, s1.sy); ctx.stroke();
+      ctx.strokeStyle = 'rgba(95,150,60,0.6)';
+      for (let z = nz + 0.3; z < 1.2; z += 0.35 + r() * 0.5) {
+        const p = P(0.05 + (r() - 0.5) * 0.08, 0, z);
+        ctx.lineWidth = Math.max(1, 0.02 * p.scale);
+        ctx.beginPath(); ctx.moveTo(p.sx, p.sy); ctx.lineTo(p.sx + (r() - 0.5) * 0.08 * p.scale, p.sy - 0.06 * p.scale); ctx.stroke();
+      }
+      // hairline cracks
+      ctx.strokeStyle = 'rgba(20,20,20,0.28)';
+      for (let i = 0; i < 8; i++) {
+        let x = -hw + r() * hw * 2, z = nz + r() * (1 - nz);
+        const st = P(x, 0, z);
+        ctx.lineWidth = Math.max(1, 0.008 * st.scale);
+        ctx.beginPath(); ctx.moveTo(st.sx, st.sy);
+        for (let k = 0; k < 5; k++) {
+          x += (r() - 0.5) * 1.0; z = Math.max(nz, z + (r() - 0.5) * 1.0);
+          const q = P(x, 0, z);
+          ctx.lineTo(q.sx, q.sy);
+        }
+        ctx.stroke();
+      }
+      // oil stain near the garage end
+      const os = P(-0.8, 0, -7.5);
+      if (os.visible) {
+        const og = ctx.createRadialGradient(os.sx, os.sy, 0, os.sx, os.sy, 0.7 * os.scale);
+        og.addColorStop(0, 'rgba(10,10,15,0.45)'); og.addColorStop(1, 'rgba(10,10,15,0)');
+        ctx.fillStyle = og;
+        ctx.beginPath(); ctx.ellipse(os.sx, os.sy, 0.7 * os.scale, 0.25 * os.scale, 0, 0, Math.PI * 2); ctx.fill();
+      }
+      // edge grass creeping over the slab
+      ctx.strokeStyle = 'rgba(110,170,70,0.6)';
+      for (const ex of [-hw, hw]) {
+        for (let z = nz + 0.2; z < 1.2; z += 0.25 + r() * 0.3) {
+          const p = P(ex + (ex < 0 ? 0.05 : -0.05), 0, z);
+          ctx.lineWidth = Math.max(1, 0.02 * p.scale);
+          ctx.beginPath(); ctx.moveTo(p.sx, p.sy); ctx.lineTo(p.sx + (ex < 0 ? 1 : -1) * 0.12 * p.scale * r(), p.sy - 0.05 * p.scale); ctx.stroke();
+        }
+      }
+      ctx.restore();
+      // soft shadow along the driveway edge next to the house
+      const e0 = P(-hw, 0, nz), e1 = P(-hw, 0, 1.2), e2 = P(-hw + 0.8, 0, 1.2), e3 = P(-hw + 0.8, 0, nz);
+      ctx.fillStyle = 'rgba(0,0,0,0.12)';
+      ctx.beginPath(); ctx.moveTo(e0.sx, e0.sy); ctx.lineTo(e1.sx, e1.sy); ctx.lineTo(e2.sx, e2.sy); ctx.lineTo(e3.sx, e3.sy); ctx.closePath(); ctx.fill();
+      this.paintHouseWall(ctx, nz);
+      paintVignette(ctx, W, H, 0.22);
       this.textures.addCanvas(key, canvas);
     }
-    this.add.image(W / 2, H / 2, key).setDepth(0);
+    if (this.bgImage) this.bgImage.setTexture(key);
+    else this.bgImage = this.add.image(W / 2, H / 2, key).setDepth(0);
+  }
+
+  /** The side of the house along the left edge of the driveway: white siding, blue shutters, stone foundation, shrubs. */
+  private paintHouseWall(ctx: CanvasRenderingContext2D, nz: number): void {
+    const pr = this.proj;
+    const wx = -HORSE_VISUAL.driveHalfWidth - 0.9;
+    const z0 = Math.max(nz, -12), z1 = 1.6;
+    if (z1 - z0 < 0.5) return;
+    const P = (x: number, y: number, z: number) => pr.project(x, y, z);
+    const poly = (pts: { sx: number; sy: number }[], fill: string | CanvasGradient, stroke?: string) => {
+      ctx.beginPath();
+      pts.forEach((p, i) => (i === 0 ? ctx.moveTo(p.sx, p.sy) : ctx.lineTo(p.sx, p.sy)));
+      ctx.closePath();
+      ctx.fillStyle = fill; ctx.fill();
+      if (stroke) { ctx.strokeStyle = stroke; ctx.lineWidth = 2; ctx.stroke(); }
+    };
+    const wallH = 3.4, roofH = 3.78;
+    // roof overhang and everything left of the wall (the roof seen from below)
+    const tl = P(wx, roofH, z0), tr = P(wx, roofH, z1);
+    const rg = ctx.createLinearGradient(0, Math.min(tl.sy, tr.sy) - 200, 0, Math.max(tl.sy, tr.sy));
+    rg.addColorStop(0, '#6a5044'); rg.addColorStop(1, '#3d2a20');
+    poly([{ sx: 0, sy: Math.min(tl.sy, tr.sy) - 2000 }, { sx: 0, sy: tl.sy }, tl, tr, { sx: 0, sy: tr.sy }], rg);
+    poly([P(wx, wallH, z0), P(wx, wallH, z1), tr, tl], '#4a362c', 'rgba(0,0,0,0.5)');
+    // siding with a vertical gradient (lit top, shaded under the eave is darker)
+    const sTop = P(wx, wallH, z0), sBot = P(wx, 0.8, z0);
+    const sg = ctx.createLinearGradient(0, sTop.sy, 0, sBot.sy);
+    sg.addColorStop(0, '#d9d1c0'); sg.addColorStop(0.18, '#f6f1e6'); sg.addColorStop(1, '#ebe4d4');
+    poly([P(wx, 0.8, z0), P(wx, 0.8, z1), P(wx, wallH, z1), P(wx, wallH, z0)], sg);
+    ctx.strokeStyle = 'rgba(90,70,50,0.22)'; ctx.lineWidth = 1.5;
+    for (let y = 1.0; y < wallH; y += 0.22) {
+      const a = P(wx, y, z0), b = P(wx, y, z1);
+      ctx.beginPath(); ctx.moveTo(a.sx, a.sy); ctx.lineTo(b.sx, b.sy); ctx.stroke();
+      ctx.strokeStyle = 'rgba(255,255,255,0.35)';
+      ctx.beginPath(); ctx.moveTo(a.sx, a.sy - 2); ctx.lineTo(b.sx, b.sy - 2); ctx.stroke();
+      ctx.strokeStyle = 'rgba(90,70,50,0.22)';
+    }
+    // stone foundation
+    const fg = ctx.createLinearGradient(0, P(wx, 0.8, z0).sy, 0, P(wx, 0, z0).sy);
+    fg.addColorStop(0, '#a89e94'); fg.addColorStop(1, '#7d746b');
+    poly([P(wx, 0, z0), P(wx, 0, z1), P(wx, 0.8, z1), P(wx, 0.8, z0)], fg, 'rgba(0,0,0,0.35)');
+    ctx.strokeStyle = 'rgba(60,50,45,0.5)'; ctx.lineWidth = 2;
+    for (let z = z0; z < z1; z += 0.8) {
+      const a = P(wx, 0, z), b = P(wx, 0.8, z);
+      ctx.beginPath(); ctx.moveTo(a.sx, a.sy); ctx.lineTo(b.sx, b.sy); ctx.stroke();
+    }
+    const m0 = P(wx, 0.4, z0), m1 = P(wx, 0.4, z1);
+    ctx.beginPath(); ctx.moveTo(m0.sx, m0.sy); ctx.lineTo(m1.sx, m1.sy); ctx.stroke();
+    // windows with blue shutters, glass reflection and a sill
+    for (const wz of [-8.5, -5.2, -1.9]) {
+      if (wz - 0.8 < z0) continue;
+      const a = P(wx, 1.5, wz - 0.55), b = P(wx, 1.5, wz + 0.55), c = P(wx, 2.7, wz + 0.55), d = P(wx, 2.7, wz - 0.55);
+      const shutter = (zz0: number, zz1: number) => {
+        const q = [P(wx, 1.45, zz0), P(wx, 1.45, zz1), P(wx, 2.75, zz1), P(wx, 2.75, zz0)];
+        const g = ctx.createLinearGradient(q[0].sx, 0, q[1].sx, 0);
+        g.addColorStop(0, '#3a63c9'); g.addColorStop(1, '#223f8f');
+        poly(q, g, 'rgba(0,0,0,0.4)');
+        ctx.strokeStyle = 'rgba(0,0,0,0.25)'; ctx.lineWidth = 1;
+        for (let y = 1.6; y < 2.7; y += 0.12) { const s0 = P(wx, y, zz0), s1 = P(wx, y, zz1); ctx.beginPath(); ctx.moveTo(s0.sx, s0.sy); ctx.lineTo(s1.sx, s1.sy); ctx.stroke(); }
+      };
+      shutter(wz - 0.85, wz - 0.6);
+      shutter(wz + 0.6, wz + 0.85);
+      const gg = ctx.createLinearGradient(a.sx, d.sy, b.sx, a.sy);
+      gg.addColorStop(0, '#bfe3ff'); gg.addColorStop(0.5, '#86c2ee'); gg.addColorStop(1, '#5a95c9');
+      poly([a, b, c, d], gg);
+      poly([P(wx, 2.1, wz - 0.5), P(wx, 2.1, wz - 0.05), P(wx, 2.65, wz - 0.05), P(wx, 2.65, wz - 0.5)], 'rgba(255,255,255,0.35)');
+      ctx.strokeStyle = '#ffffff'; ctx.lineWidth = 3;
+      ctx.beginPath(); ctx.moveTo(a.sx, a.sy); ctx.lineTo(b.sx, b.sy); ctx.lineTo(c.sx, c.sy); ctx.lineTo(d.sx, d.sy); ctx.closePath(); ctx.stroke();
+      const mx0 = P(wx, 1.5, wz), mx1 = P(wx, 2.7, wz), my0 = P(wx, 2.1, wz - 0.55), my1 = P(wx, 2.1, wz + 0.55);
+      ctx.beginPath(); ctx.moveTo(mx0.sx, mx0.sy); ctx.lineTo(mx1.sx, mx1.sy); ctx.moveTo(my0.sx, my0.sy); ctx.lineTo(my1.sx, my1.sy); ctx.stroke();
+      poly([P(wx, 1.42, wz - 0.65), P(wx, 1.42, wz + 0.65), P(wx, 1.5, wz + 0.65), P(wx, 1.5, wz - 0.65)], '#ffffff', 'rgba(0,0,0,0.3)');
+    }
+    // garden hose on a hook, downspout, shrubs along the foundation
+    const hz = -3.6;
+    if (hz > z0) {
+      const h = P(wx, 1.1, hz);
+      ctx.strokeStyle = '#2e7d32'; ctx.lineWidth = Math.max(2, 0.05 * h.scale);
+      ctx.beginPath(); ctx.ellipse(h.sx, h.sy, 0.25 * h.scale, 0.25 * h.scale, 0, 0, Math.PI * 2); ctx.stroke();
+      ctx.strokeStyle = '#43a047';
+      ctx.beginPath(); ctx.ellipse(h.sx, h.sy, 0.16 * h.scale, 0.16 * h.scale, 0, 0, Math.PI * 2); ctx.stroke();
+    }
+    const ds = P(wx, 0, 1.3), dt = P(wx, roofH, 1.3);
+    if (ds.visible) { ctx.strokeStyle = '#d8d2c4'; ctx.lineWidth = Math.max(3, 0.08 * ds.scale); ctx.beginPath(); ctx.moveTo(dt.sx, dt.sy); ctx.lineTo(ds.sx, ds.sy); ctx.stroke(); }
+    for (let z = Math.max(z0 + 0.4, -11); z < 1.2; z += 0.9) {
+      const p = P(wx + 0.45, 0, z);
+      const bg = ctx.createRadialGradient(p.sx - 0.15 * p.scale, p.sy - 0.4 * p.scale, 0.05 * p.scale, p.sx, p.sy - 0.25 * p.scale, 0.45 * p.scale);
+      bg.addColorStop(0, '#8fd05a'); bg.addColorStop(0.6, '#3f8a2e'); bg.addColorStop(1, '#1f4f1c');
+      ctx.fillStyle = 'rgba(0,0,0,0.2)';
+      ctx.beginPath(); ctx.ellipse(p.sx + 0.1 * p.scale, p.sy, 0.4 * p.scale, 0.12 * p.scale, 0, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = bg;
+      ctx.beginPath(); ctx.ellipse(p.sx, p.sy - 0.25 * p.scale, 0.38 * p.scale, 0.3 * p.scale, 0, 0, Math.PI * 2); ctx.fill();
+    }
   }
 
   /** Redraw everything whose screen position depends on the current camera. */
@@ -157,30 +350,8 @@ export class HorseScene extends BaseGameScene {
     const g = this.court;
     g.clear();
     const hw = HORSE_VISUAL.driveHalfWidth;
-    // Driveway slab
-    const quad = (x0: number, z0: number, x1: number, z1: number, color: number, alpha = 1) => {
-      const a = pr.project(x0, 0, z0), b = pr.project(x1, 0, z0), c = pr.project(x1, 0, z1), d = pr.project(x0, 0, z1);
-      g.fillStyle(color, alpha);
-      g.fillPoints([{ x: a.sx, y: a.sy }, { x: b.sx, y: b.sy }, { x: c.sx, y: c.sy }, { x: d.sx, y: d.sy }], true);
-    };
     const nz = this.nearZ;
-    quad(-hw, nz, hw, 1.2, 0x6f6c68);
-    // lighter wear strips and cracks
-    quad(-hw * 0.5, nz, hw * 0.5, 1.2, 0x7a7773, 0.5);
-    const r = rng(7);
-    g.lineStyle(2, 0x3a3835, 0.6);
-    for (let i = 0; i < 12; i++) {
-      let x = -hw + r() * hw * 2, z = nz + r() * (1 - nz);
-      const s = pr.project(x, 0, z);
-      g.beginPath();
-      g.moveTo(s.sx, s.sy);
-      for (let k = 0; k < 5; k++) {
-        x += (r() - 0.5) * 1.2; z = Math.max(nz, z + (r() - 0.5) * 1.2);
-        const p = pr.project(x, 0, z);
-        g.lineTo(p.sx, p.sy);
-      }
-      g.strokePath();
-    }
+    this.paintBackground();
     // Chalk shooting area (dashed rectangle)
     g.lineStyle(4, 0xffffff, 0.8);
     const dash = (x0: number, z0: number, x1: number, z1: number) => {
@@ -197,25 +368,6 @@ export class HorseScene extends BaseGameScene {
     if (farZ === HORSE_VISUAL.areaFarZ) dash(-aw, farZ, aw, farZ);
     dash(-aw, HORSE_VISUAL.areaNearZ, -aw, farZ);
     dash(aw, HORSE_VISUAL.areaNearZ, aw, farZ);
-    // Fence behind the hoop
-    const fz = 3.2;
-    g.fillStyle(0x7a5a3a, 1);
-    for (let x = -16; x <= 16; x += 0.32) {
-      const b = pr.project(x, 0, fz), t = pr.project(x, 1.5, fz);
-      if (!b.visible) continue;
-      g.fillRect(b.sx - 0.1 * b.scale, t.sy, 0.2 * b.scale, b.sy - t.sy);
-    }
-    g.fillStyle(0x5c4128, 1);
-    for (const yy of [0.5, 1.15]) {
-      const l = pr.project(-16, yy, fz), rr = pr.project(16, yy, fz);
-      g.fillRect(l.sx, l.sy - 2, rr.sx - l.sx, 5);
-    }
-    // flower bed along the fence
-    for (let x = -8; x <= 8; x += 0.5) {
-      const p = pr.project(x, 0, fz - 0.4);
-      g.fillStyle([0xe53935, 0xffc107, 0xf06292, 0x8bc34a][Math.floor(Math.abs(x) * 2) % 4], 1);
-      g.fillCircle(p.sx, p.sy - 0.15 * p.scale, 0.12 * p.scale);
-    }
     // Chalk spots
     this.spotZones.forEach((z) => z.destroy());
     this.spotZones = [];
@@ -235,61 +387,78 @@ export class HorseScene extends BaseGameScene {
       zone.on('pointerdown', () => this.onSpotTap(s.id));
       this.spotZones.push(zone);
     });
-    // Hoop: pole, backboard, rim, net
+    // Hoop: weighted base, steel pole, backboard, rim with drop shadow, net
     const hb = this.hoopBack, hf = this.hoopFront;
     hb.clear(); hf.clear();
     const bz = this.cfg.backboardZ;
     const poleBase = pr.project(0, 0, bz + 0.25), poleTop = pr.project(0, this.cfg.backboardBottom + 0.1, bz + 0.25);
-    hb.fillStyle(0x000000, 0.25);
-    hb.fillEllipse(poleBase.sx + 0.4 * poleBase.scale, poleBase.sy, 1.4 * poleBase.scale, 0.5 * poleBase.scale);
-    hb.lineStyle(Math.max(4, 0.12 * poleBase.scale), 0x2b2b2b, 1);
-    hb.lineBetween(poleBase.sx, poleBase.sy, poleTop.sx, poleTop.sy);
-    // base weight
-    hb.fillStyle(0x3a3a3a, 1);
-    hb.fillEllipse(poleBase.sx, poleBase.sy, 0.8 * poleBase.scale, 0.3 * poleBase.scale);
+    hb.fillStyle(0x000000, 0.28);
+    hb.fillEllipse(poleBase.sx + 0.5 * poleBase.scale, poleBase.sy + 0.02 * poleBase.scale, 1.6 * poleBase.scale, 0.5 * poleBase.scale);
+    // water-filled plastic base: a rounded wedge with a highlight
+    const bw = 0.95 * poleBase.scale, bh = 0.34 * poleBase.scale;
+    hb.fillStyle(0x1f2a44, 1);
+    hb.fillRoundedRect(poleBase.sx - bw / 2, poleBase.sy - bh, bw, bh, Math.min(10, bh * 0.4));
+    hb.fillStyle(0x34466e, 1);
+    hb.fillRoundedRect(poleBase.sx - bw / 2 + 3, poleBase.sy - bh + 3, bw - 6, bh * 0.45, Math.min(8, bh * 0.3));
+    hb.fillStyle(0x0d1322, 1);
+    hb.fillEllipse(poleBase.sx, poleBase.sy - 1, bw * 0.9, bh * 0.35);
+    // pole: dark steel with a bright highlight stripe
+    const pw = Math.max(5, 0.12 * poleBase.scale);
+    hb.lineStyle(pw, 0x24262a, 1);
+    hb.lineBetween(poleBase.sx, poleBase.sy - bh * 0.6, poleTop.sx, poleTop.sy);
+    hb.lineStyle(Math.max(2, pw * 0.3), 0x8a8f99, 1);
+    hb.lineBetween(poleBase.sx - pw * 0.22, poleBase.sy - bh * 0.6, poleTop.sx - pw * 0.22, poleTop.sy);
+    // backboard with a drop shadow, grey border and red target square
     const bl = pr.project(-this.cfg.backboardHalfWidth, this.cfg.backboardBottom, bz);
     const br = pr.project(this.cfg.backboardHalfWidth, this.cfg.backboardBottom, bz);
     const tl = pr.project(-this.cfg.backboardHalfWidth, this.cfg.backboardTop, bz);
     const tr = pr.project(this.cfg.backboardHalfWidth, this.cfg.backboardTop, bz);
-    hb.fillStyle(0xe8e4dc, 1);
+    const off = Math.max(3, 0.04 * bl.scale);
+    hb.fillStyle(0x000000, 0.22);
+    hb.fillPoints([{ x: tl.sx + off, y: tl.sy + off }, { x: tr.sx + off, y: tr.sy + off }, { x: br.sx + off, y: br.sy + off }, { x: bl.sx + off, y: bl.sy + off }], true);
+    hb.fillStyle(0xf4f1ea, 1);
     hb.fillPoints([{ x: tl.sx, y: tl.sy }, { x: tr.sx, y: tr.sy }, { x: br.sx, y: br.sy }, { x: bl.sx, y: bl.sy }], true);
-    hb.lineStyle(3, 0x555555, 1);
+    hb.fillStyle(0xd8d4cc, 0.6);
+    hb.fillPoints([{ x: tl.sx, y: tl.sy }, { x: tr.sx, y: tr.sy }, { x: tr.sx, y: tr.sy + (br.sy - tr.sy) * 0.35 }, { x: tl.sx, y: tl.sy + (bl.sy - tl.sy) * 0.35 }], true);
+    hb.lineStyle(Math.max(3, 0.05 * bl.scale), 0x6b6b6b, 1);
     hb.strokePoints([{ x: tl.sx, y: tl.sy }, { x: tr.sx, y: tr.sy }, { x: br.sx, y: br.sy }, { x: bl.sx, y: bl.sy }], true);
-    // inner square
     const il = pr.project(-0.3, this.cfg.rimHeight, bz), ir = pr.project(0.3, this.cfg.rimHeight, bz), it = pr.project(0.3, this.cfg.rimHeight + 0.45, bz), itl = pr.project(-0.3, this.cfg.rimHeight + 0.45, bz);
-    hb.lineStyle(3, 0xd32f2f, 1);
+    hb.lineStyle(Math.max(3, 0.035 * bl.scale), 0xd32f2f, 1);
     hb.strokePoints([{ x: itl.sx, y: itl.sy }, { x: it.sx, y: it.sy }, { x: ir.sx, y: ir.sy }, { x: il.sx, y: il.sy }], true);
-    // grime
-    hb.fillStyle(0x9a948a, 0.25);
+    hb.fillStyle(0x9a948a, 0.18);
     hb.fillEllipse((bl.sx + br.sx) / 2, bl.sy - (bl.sy - tl.sy) * 0.3, (br.sx - bl.sx) * 0.7, (bl.sy - tl.sy) * 0.4);
-    // rim (back half behind the ball layer, front half in front)
+    // rim: thick orange ring with a dark underside and a drop shadow on the backboard
     const rc = pr.project(0, this.cfg.rimHeight, 0);
     const rn = pr.project(0, this.cfg.rimHeight, -this.cfg.rimRadius), rf = pr.project(0, this.cfg.rimHeight, this.cfg.rimRadius);
     const rrx = this.cfg.rimRadius * rc.scale, rry = Math.max(3, (rn.sy - rf.sy) / 2);
-    const rimW = Math.max(3, 0.03 * rc.scale);
-    hb.lineStyle(rimW, 0xe65100, 1);
-    hb.beginPath();
-    hb.arc(rc.sx, rc.sy, 1, Math.PI, 0, false); // placeholder to keep API happy
-    hb.strokePath();
+    const rimW = Math.max(4, 0.045 * rc.scale);
+    this.strokeHalfEllipse(hb, rc.sx + off * 0.5, rc.sy + off, rrx, rry, true, rimW, 0x000000, 0.25);
+    this.strokeHalfEllipse(hb, rc.sx, rc.sy + rimW * 0.35, rrx, rry, true, rimW, 0xa63a00);
     this.strokeHalfEllipse(hb, rc.sx, rc.sy, rrx, rry, true, rimW, 0xe65100);
-    // rim bracket to backboard
+    // bracket to the backboard
     hb.lineStyle(rimW, 0xbf360c, 1);
     hb.lineBetween(rc.sx, rf.sy, rc.sx, pr.project(0, this.cfg.rimHeight, bz).sy);
-    // net
-    hf.lineStyle(2, 0xffffff, 0.9);
+    hb.lineStyle(Math.max(2, rimW * 0.35), 0xff8a50, 1);
+    hb.lineBetween(rc.sx - rimW * 0.2, rf.sy, rc.sx - rimW * 0.2, pr.project(0, this.cfg.rimHeight, bz).sy);
+    // net: strands converge and cross, with a soft shadow pass behind the white
     const nb = pr.project(0, this.cfg.rimHeight - 0.42, 0);
-    const strands = 10;
-    for (let i = 0; i < strands; i++) {
-      const a = (i / strands) * Math.PI * 2;
-      const x0 = rc.sx + Math.cos(a) * rrx, y0 = rc.sy + Math.sin(a) * rry;
-      const x1 = nb.sx + Math.cos(a) * rrx * 0.55, y1 = nb.sy + Math.sin(a) * rry * 0.55;
-      hf.lineBetween(x0, y0, x1, y1);
-      const a2 = ((i + 0.5) / strands) * Math.PI * 2;
-      hf.lineBetween(x0, y0, nb.sx + Math.cos(a2) * rrx * 0.55, nb.sy + Math.sin(a2) * rry * 0.55);
+    const strands = 12;
+    for (const pass of [0, 1]) {
+      hf.lineStyle(pass === 0 ? 3 : 1.8, pass === 0 ? 0x000000 : 0xffffff, pass === 0 ? 0.15 : 0.95);
+      for (let i = 0; i < strands; i++) {
+        const a = (i / strands) * Math.PI * 2;
+        const x0 = rc.sx + Math.cos(a) * rrx, y0 = rc.sy + Math.sin(a) * rry;
+        const a2 = ((i + 0.5) / strands) * Math.PI * 2;
+        const xm = (rc.sx + nb.sx) / 2 + Math.cos(a2) * rrx * 0.8, ym = (y0 + nb.sy) / 2 + Math.sin(a2) * rry * 0.8;
+        hf.lineBetween(x0, y0, xm, ym);
+        hf.lineBetween(xm, ym, nb.sx + Math.cos(a) * rrx * 0.5, nb.sy + Math.sin(a) * rry * 0.5);
+      }
+      // bottom loop
+      hf.strokeEllipse(nb.sx, nb.sy, rrx * 1.0, rry * 1.0);
     }
+    this.strokeHalfEllipse(hf, rc.sx, rc.sy + rimW * 0.35, rrx, rry, false, rimW, 0xa63a00);
     this.strokeHalfEllipse(hf, rc.sx, rc.sy, rrx, rry, false, rimW, 0xff6f00);
-    // Side of the house along the left edge of the driveway (a wall parallel to the drive)
-    this.drawHouseWall(nz);
+    this.strokeHalfEllipse(hf, rc.sx, rc.sy - rimW * 0.25, rrx, rry, false, Math.max(1.5, rimW * 0.3), 0xffb27a);
     // Characters
     const sp = SPOTS[this.spotIndex];
     const spp = pr.project(sp.x, 0, sp.z);
@@ -312,74 +481,8 @@ export class HorseScene extends BaseGameScene {
     this.lastPreviewKey = '';
   }
 
-  private drawHouseWall(nz: number): void {
-    const pr = this.proj;
-    const g = this.house;
-    g.clear();
-    const wx = -HORSE_VISUAL.driveHalfWidth - 0.9;
-    const z0 = Math.max(nz, -12), z1 = 1.6;
-    if (z1 - z0 < 0.5) return;
-    const P = (x: number, y: number, z: number) => pr.project(x, y, z);
-    const poly = (pts: { sx: number; sy: number }[], color: number, alpha = 1) => {
-      g.fillStyle(color, alpha);
-      g.fillPoints(pts.map((p) => ({ x: p.sx, y: p.sy })), true);
-    };
-    // foundation (stone), siding, roof overhang
-    poly([P(wx, 0, z0), P(wx, 0, z1), P(wx, 0.8, z1), P(wx, 0.8, z0)], 0x9a9088);
-    poly([P(wx, 0.8, z0), P(wx, 0.8, z1), P(wx, 3.4, z1), P(wx, 3.4, z0)], 0xf1e8d2);
-    poly([P(wx, 3.4, z0), P(wx, 3.4, z1), P(wx, 3.75, z1), P(wx, 3.75, z0)], 0x5a4034);
-    // everything left of the wall is house too (fill to the screen edge)
-    const tl = P(wx, 3.75, z0), tr = P(wx, 3.75, z1);
-    poly([{ sx: 0, sy: tl.sy }, tl, tr, { sx: 0, sy: tr.sy }], 0x5a4034);
-    const bl = P(wx, 0, z0), br = P(wx, 0, z1);
-    // stone pattern
-    g.lineStyle(2, 0x6d655e, 0.8);
-    for (let z = z0; z < z1; z += 0.8) {
-      const a = P(wx, 0, z), b = P(wx, 0.8, z);
-      g.lineBetween(a.sx, a.sy, b.sx, b.sy);
-    }
-    const m0 = P(wx, 0.4, z0), m1 = P(wx, 0.4, z1);
-    g.lineBetween(m0.sx, m0.sy, m1.sx, m1.sy);
-    // siding lines
-    g.lineStyle(1.5, 0xc9bda4, 0.9);
-    for (let y = 1.0; y < 3.4; y += 0.22) {
-      const a = P(wx, y, z0), b = P(wx, y, z1);
-      g.lineBetween(a.sx, a.sy, b.sx, b.sy);
-    }
-    // windows with green shutters
-    for (const wz of [-8.5, -5.2, -1.9]) {
-      if (wz - 0.8 < z0) continue;
-      const a = P(wx, 1.5, wz - 0.55), b = P(wx, 1.5, wz + 0.55), c = P(wx, 2.7, wz + 0.55), d = P(wx, 2.7, wz - 0.55);
-      poly([P(wx, 1.45, wz - 0.85), P(wx, 1.45, wz - 0.6), P(wx, 2.75, wz - 0.6), P(wx, 2.75, wz - 0.85)], 0x2e5d3a);
-      poly([P(wx, 1.45, wz + 0.6), P(wx, 1.45, wz + 0.85), P(wx, 2.75, wz + 0.85), P(wx, 2.75, wz + 0.6)], 0x2e5d3a);
-      poly([a, b, c, d], 0x9fd3ff);
-      poly([P(wx, 2.1, wz - 0.5), P(wx, 2.1, wz - 0.05), P(wx, 2.65, wz - 0.05), P(wx, 2.65, wz - 0.5)], 0xffffff, 0.35);
-      g.lineStyle(3, 0xffffff, 1);
-      g.strokePoints([{ x: a.sx, y: a.sy }, { x: b.sx, y: b.sy }, { x: c.sx, y: c.sy }, { x: d.sx, y: d.sy }], true);
-      const mx0 = P(wx, 1.5, wz), mx1 = P(wx, 2.7, wz), my0 = P(wx, 2.1, wz - 0.55), my1 = P(wx, 2.1, wz + 0.55);
-      g.lineBetween(mx0.sx, mx0.sy, mx1.sx, mx1.sy);
-      g.lineBetween(my0.sx, my0.sy, my1.sx, my1.sy);
-    }
-    // garden hose coiled on the wall + shrubs along the foundation
-    const hz = -3.6;
-    if (hz > z0) {
-      const h = P(wx, 1.1, hz);
-      g.lineStyle(Math.max(2, 0.05 * h.scale), 0x2e7d32, 1);
-      g.strokeEllipse(h.sx, h.sy, 0.5 * h.scale, 0.5 * h.scale);
-      g.strokeEllipse(h.sx, h.sy, 0.32 * h.scale, 0.32 * h.scale);
-    }
-    for (let z = Math.max(z0 + 0.4, -11); z < 1.2; z += 0.9) {
-      const p = P(wx + 0.45, 0, z);
-      g.fillStyle(0x3f8a2e, 1);
-      g.fillEllipse(p.sx, p.sy - 0.2 * p.scale, 0.7 * p.scale, 0.55 * p.scale);
-      g.fillStyle(0x6cc04a, 0.6);
-      g.fillEllipse(p.sx - 0.1 * p.scale, p.sy - 0.3 * p.scale, 0.35 * p.scale, 0.25 * p.scale);
-    }
-    void bl; void br;
-  }
-
-  private strokeHalfEllipse(g: Phaser.GameObjects.Graphics, cx: number, cy: number, rx: number, ry: number, back: boolean, width: number, color: number): void {
-    g.lineStyle(width, color, 1);
+  private strokeHalfEllipse(g: Phaser.GameObjects.Graphics, cx: number, cy: number, rx: number, ry: number, back: boolean, width: number, color: number, alpha = 1): void {
+    g.lineStyle(width, color, alpha);
     g.beginPath();
     const n = 24;
     for (let i = 0; i <= n; i++) {

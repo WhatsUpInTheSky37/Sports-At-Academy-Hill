@@ -6,7 +6,7 @@ import { Audio } from '../../core/audio';
 import { Meter, displayStyle, textStyle, impact, confetti, shake } from '../../core/ui';
 import type { Controls } from '../../core/input';
 import { CharacterSprite } from '../../art/characters';
-import { createCanvas, paintAsphalt, paintGrass, paintHouseFront, paintPine, paintSky, paintTreeSide, rng } from '../../art/environment';
+import { createCanvas, paintAsphalt, paintCypress, paintHaze, paintLawnHD, paintPineHD, paintSkyHD, paintTreeHD, paintVignette, rng } from '../../art/environment';
 import { DEFAULT_HOCKEY, NO_INPUT, aiInputs, createAiMemory, createHockey, step, type AiMemory, type HockeyConfig, type HockeyInputs, type HockeyState } from './sim';
 
 /** Visual tuning for the hockey scene. */
@@ -93,6 +93,10 @@ export class HockeyScene extends BaseGameScene {
   }
 
   // ---------- background ----------
+  /**
+   * The driveway seen from inside the near net: house with white siding and blue shutters on the
+   * left, the evergreen line on the right and across the far end, the woods hazy beyond.
+   */
   private paintBackground(): void {
     const W = this.W, H = this.H;
     const key = `hockey-bg-${W}x${H}`;
@@ -101,133 +105,210 @@ export class HockeyScene extends BaseGameScene {
       const pr = this.proj;
       const cfg = this.cfg;
       const horizon = pr.cam.horizonY;
-      paintSky(ctx, W, H, horizon + 2);
-      paintGrass(ctx, 0, horizon, W, H - horizon, 11, '#5a9638');
       const r = rng(31);
-      // far neighbourhood beyond the fence
-      for (let i = 0; i < 9; i++) {
-        const x = -30 + i * 7 + r() * 3;
-        const z = cfg.rinkL + 16 + r() * 14;
-        const p = pr.project(x, 0, z);
-        paintHouseFront(ctx, p.sx - 4 * p.scale, p.sy - 5 * p.scale, 8 * p.scale, 5 * p.scale, { siding: ['#f1e6c8', '#d9e4f0', '#e8d4c0'][i % 3] });
-      }
-      for (let i = 0; i < 18; i++) {
-        const x = -36 + i * 4.2 + r() * 2;
-        const z = cfg.rinkL + 10 + r() * 16;
-        const p = pr.project(x, 0, z);
-        paintTreeSide(ctx, p.sx, p.sy, 7 * p.scale, 60 + i);
-      }
-      // backyard fence across the far end
-      const fz = cfg.rinkL + 5.5;
-      const fl = pr.project(-16, 0, fz), fr = pr.project(16, 0, fz), ft = pr.project(0, 1.8, fz);
-      const fh = fl.sy - ft.sy;
-      const fg = ctx.createLinearGradient(0, ft.sy, 0, fl.sy);
-      fg.addColorStop(0, '#a87a4c'); fg.addColorStop(1, '#6e4a2a');
-      ctx.fillStyle = fg;
-      ctx.fillRect(fl.sx, ft.sy, fr.sx - fl.sx, fh);
-      ctx.strokeStyle = 'rgba(40,20,5,0.4)';
-      ctx.lineWidth = 1.5;
-      const slat = Math.max(4, 0.18 * fl.scale);
-      for (let x = fl.sx; x < fr.sx; x += slat) { ctx.beginPath(); ctx.moveTo(x, ft.sy); ctx.lineTo(x, fl.sy); ctx.stroke(); }
-      ctx.fillStyle = '#5a3a1e';
-      ctx.fillRect(fl.sx, ft.sy + fh * 0.25, fr.sx - fl.sx, 3);
-      ctx.fillRect(fl.sx, ft.sy + fh * 0.7, fr.sx - fl.sx, 3);
-      // flower beds just before the fence
-      for (let i = 0; i < 14; i++) {
-        const p = pr.project(-7 + i * 1.1 + r() * 0.4, 0, cfg.rinkL + 4.2 + r() * 0.8);
-        ctx.fillStyle = ['#e5533d', '#f5c518', '#f48fb1', '#ffffff'][i % 4];
-        ctx.beginPath(); ctx.arc(p.sx, p.sy - 0.3 * p.scale, 0.18 * p.scale, 0, Math.PI * 2); ctx.fill();
-        ctx.fillStyle = '#2f7a2a';
-        ctx.beginPath(); ctx.ellipse(p.sx, p.sy, 0.35 * p.scale, 0.15 * p.scale, 0, 0, Math.PI * 2); ctx.fill();
-      }
-      // driveway trapezoid
+      const nearZ = -HOCKEY_VISUAL.camZ + 0.25;
+      const farZ = cfg.rinkL + 3.5;
       const hw = cfg.rinkW / 2 + 0.3;
-      const nearZ = -HOCKEY_VISUAL.camZ + 0.25; // just in front of the camera
-      const a = pr.project(-hw, 0, nearZ), b = pr.project(hw, 0, nearZ), c = pr.project(hw, 0, cfg.rinkL + 3.5), d = pr.project(-hw, 0, cfg.rinkL + 3.5);
+      const P = (x: number, y: number, z: number) => pr.project(x, y, z);
+      const poly = (pts: { sx: number; sy: number }[], fill: string | CanvasGradient, stroke?: string, lw = 2) => {
+        ctx.beginPath();
+        pts.forEach((pt, i) => (i === 0 ? ctx.moveTo(pt.sx, pt.sy) : ctx.lineTo(pt.sx, pt.sy)));
+        ctx.closePath();
+        ctx.fillStyle = fill; ctx.fill();
+        if (stroke) { ctx.strokeStyle = stroke; ctx.lineWidth = lw; ctx.stroke(); }
+      };
+      paintSkyHD(ctx, W, H, horizon + 2, { sunX: W * 0.68, sunY: horizon * 0.3 });
+      // hazy woods beyond the far hedge
+      const woods: { x: number; z: number; s: number; seed: number }[] = [];
+      for (let i = 0; i < 60; i++) woods.push({ x: -120 + i * 4.2 + r() * 2.5, z: farZ + 28 + r() * 50, s: 7 + r() * 6, seed: 100 + i });
+      woods.sort((a, b) => b.z - a.z).forEach((t) => {
+        const p = P(t.x, 0, t.z);
+        const haze = Math.min(0.85, 0.4 + (t.z - farZ) / 90);
+        if (t.seed % 3 === 0) paintPineHD(ctx, p.sx, p.sy, t.s * 1.3 * p.scale, t.seed, { haze });
+        else paintTreeHD(ctx, p.sx, p.sy, t.s * p.scale, t.seed, { haze });
+      });
+      paintHaze(ctx, W, horizon, 110);
+      // lawn: the whole ground; the driveway is painted over it
+      paintLawnHD(ctx, pr, { x0: -30, x1: 30, z0: nearZ, z1: farZ + 14 }, { seed: 11, base: '#579a38', stripeWidth: 2.6 });
+      // ---- driveway: asphalt clipped to the projected trapezoid ----
+      const a = P(-hw, 0, nearZ), b = P(hw, 0, nearZ), c = P(hw, 0, farZ), d = P(-hw, 0, farZ);
       ctx.save();
       ctx.beginPath(); ctx.moveTo(a.sx, a.sy); ctx.lineTo(b.sx, b.sy); ctx.lineTo(c.sx, c.sy); ctx.lineTo(d.sx, d.sy); ctx.closePath(); ctx.clip();
-      paintAsphalt(ctx, 0, horizon, W, H - horizon, 13, '#6f6c68');
-      // perspective-scaled cracks/patches for depth
-      for (let i = 0; i < 26; i++) {
-        const p = pr.project((r() - 0.5) * cfg.rinkW, 0, r() * cfg.rinkL);
-        ctx.fillStyle = r() > 0.5 ? 'rgba(0,0,0,0.06)' : 'rgba(255,255,255,0.05)';
-        ctx.beginPath(); ctx.ellipse(p.sx, p.sy, (0.2 + r() * 0.4) * p.scale, (0.05 + r() * 0.08) * p.scale, 0, 0, Math.PI * 2); ctx.fill();
+      paintAsphalt(ctx, 0, horizon - 10, W, H - horizon + 10, 13, '#6b6966');
+      // depth shading: darker and cooler toward the far end, warm sunlight near the camera
+      const dg = ctx.createLinearGradient(0, c.sy, 0, a.sy);
+      dg.addColorStop(0, 'rgba(60,70,90,0.35)');
+      dg.addColorStop(0.5, 'rgba(0,0,0,0)');
+      dg.addColorStop(1, 'rgba(255,230,180,0.08)');
+      ctx.fillStyle = dg;
+      ctx.fillRect(0, c.sy - 4, W, a.sy - c.sy + 8);
+      // perspective patches, tar seams and cracks
+      for (let i = 0; i < 34; i++) {
+        const p = P((r() - 0.5) * cfg.rinkW, 0, r() * cfg.rinkL);
+        const pg = ctx.createRadialGradient(p.sx, p.sy, 0, p.sx, p.sy, (0.5 + r() * 0.9) * p.scale);
+        const dark = r() > 0.45;
+        pg.addColorStop(0, dark ? 'rgba(0,0,0,0.16)' : 'rgba(255,255,255,0.08)');
+        pg.addColorStop(1, 'rgba(0,0,0,0)');
+        ctx.fillStyle = pg;
+        ctx.beginPath(); ctx.ellipse(p.sx, p.sy, (0.5 + r() * 0.9) * p.scale, (0.12 + r() * 0.2) * p.scale, 0, 0, Math.PI * 2); ctx.fill();
       }
-      // grass creeping into the cracks, like the real driveway
-      ctx.strokeStyle = 'rgba(95,150,60,0.5)';
-      for (let z = 1; z < cfg.rinkL; z += 2 + r() * 2.5) {
-        const a = pr.project(-cfg.rinkW / 2 + r(), 0, z), b = pr.project(cfg.rinkW / 2 - r(), 0, z + (r() - 0.5) * 0.4);
-        ctx.lineWidth = Math.max(1, 0.025 * a.scale);
-        ctx.beginPath(); ctx.moveTo(a.sx, a.sy); ctx.lineTo(b.sx, b.sy); ctx.stroke();
+      ctx.strokeStyle = 'rgba(0,0,0,0.28)';
+      ctx.lineCap = 'round';
+      for (let i = 0; i < 16; i++) {
+        let wx = (r() - 0.5) * cfg.rinkW, wz = r() * cfg.rinkL;
+        const p0 = P(wx, 0, wz);
+        ctx.lineWidth = Math.max(1, 0.012 * p0.scale);
+        ctx.beginPath(); ctx.moveTo(p0.sx, p0.sy);
+        for (let k = 0; k < 5; k++) {
+          wx += (r() - 0.5) * 0.9; wz += (r() - 0.5) * 0.9;
+          const p = P(wx, 0, wz);
+          ctx.lineTo(p.sx, p.sy);
+        }
+        ctx.stroke();
       }
+      // centre seam running the length of the driveway
+      const s0 = P(0.12, 0, nearZ), s1 = P(0.12, 0, farZ);
+      ctx.strokeStyle = 'rgba(0,0,0,0.3)'; ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.moveTo(s0.sx, s0.sy); ctx.lineTo(s1.sx, s1.sy); ctx.stroke();
+      // grass creeping into the cracks, like the real driveway: broken seams with small tufts
+      for (let z = 0.5; z < cfg.rinkL; z += 1.6 + r() * 2.4) {
+        const segs = 2 + Math.floor(r() * 3);
+        for (let sgi = 0; sgi < segs; sgi++) {
+          const x0 = -cfg.rinkW / 2 + r() * cfg.rinkW, len = 0.6 + r() * 1.8;
+          const ga = P(x0, 0, z + (r() - 0.5) * 0.3), gb = P(Math.min(cfg.rinkW / 2, x0 + len), 0, z + (r() - 0.5) * 0.3);
+          ctx.strokeStyle = 'rgba(95,150,60,0.4)';
+          ctx.lineWidth = Math.max(1, 0.025 * ga.scale);
+          ctx.beginPath(); ctx.moveTo(ga.sx, ga.sy); ctx.lineTo(gb.sx, gb.sy); ctx.stroke();
+          const n = Math.floor(2 + r() * 4);
+          for (let k = 0; k < n; k++) {
+            const t = r();
+            const tx = ga.sx + (gb.sx - ga.sx) * t, ty = ga.sy + (gb.sy - ga.sy) * t;
+            const bl = Math.min(12, 0.07 * ga.scale);
+            if (bl < 1.5) continue;
+            ctx.strokeStyle = 'rgba(140,195,85,0.55)'; ctx.lineWidth = 1.2;
+            ctx.beginPath(); ctx.moveTo(tx, ty); ctx.quadraticCurveTo(tx + (r() - 0.5) * bl * 0.5, ty - bl * 0.6, tx + (r() - 0.5) * bl, ty - bl); ctx.stroke();
+          }
+        }
+      }
+      // worn grey edge where the driveway meets the lawn
       ctx.restore();
-      // chalk side lines + goal lines + centre line
+      // ---- chalk and paint lines ----
       const line = (x1: number, z1: number, x2: number, z2: number, col: string, w: number, dash?: number[]) => {
-        const p1 = pr.project(x1, 0, z1), p2 = pr.project(x2, 0, z2);
+        const p1 = P(x1, 0, z1), p2 = P(x2, 0, z2);
         ctx.strokeStyle = col; ctx.lineWidth = w;
         ctx.setLineDash(dash ?? []);
+        ctx.lineCap = 'butt';
         ctx.beginPath(); ctx.moveTo(p1.sx, p1.sy); ctx.lineTo(p2.sx, p2.sy); ctx.stroke();
         ctx.setLineDash([]);
       };
-      line(-cfg.rinkW / 2, nearZ, -cfg.rinkW / 2, cfg.rinkL + 2, 'rgba(255,255,255,0.85)', 4);
-      line(cfg.rinkW / 2, nearZ, cfg.rinkW / 2, cfg.rinkL + 2, 'rgba(255,255,255,0.85)', 4);
-      line(-cfg.rinkW / 2, cfg.rinkL, cfg.rinkW / 2, cfg.rinkL, 'rgba(255,80,80,0.9)', 3);
-      line(-cfg.rinkW / 2, 0, cfg.rinkW / 2, 0, 'rgba(255,80,80,0.9)', 5);
-      line(-cfg.rinkW / 2, cfg.rinkL / 2, cfg.rinkW / 2, cfg.rinkL / 2, 'rgba(255,255,255,0.6)', 3, [18, 12]);
-      const cp = pr.project(0, 0, cfg.rinkL / 2);
-      ctx.strokeStyle = 'rgba(255,255,255,0.6)'; ctx.lineWidth = 3;
+      // chalk is thicker near the camera: draw as thin perspective quads
+      const chalkStrip = (x: number, wdt: number, col: string) => {
+        poly([P(x - wdt / 2, 0, nearZ), P(x + wdt / 2, 0, nearZ), P(x + wdt / 2, 0, cfg.rinkL + 2), P(x - wdt / 2, 0, cfg.rinkL + 2)], col);
+      };
+      chalkStrip(-cfg.rinkW / 2, 0.09, 'rgba(255,255,255,0.88)');
+      chalkStrip(cfg.rinkW / 2, 0.09, 'rgba(255,255,255,0.88)');
+      poly([P(-cfg.rinkW / 2, 0, cfg.rinkL - 0.05), P(cfg.rinkW / 2, 0, cfg.rinkL - 0.05), P(cfg.rinkW / 2, 0, cfg.rinkL + 0.05), P(-cfg.rinkW / 2, 0, cfg.rinkL + 0.05)], 'rgba(230,50,50,0.9)');
+      poly([P(-cfg.rinkW / 2, 0, -0.06), P(cfg.rinkW / 2, 0, -0.06), P(cfg.rinkW / 2, 0, 0.06), P(-cfg.rinkW / 2, 0, 0.06)], 'rgba(230,50,50,0.9)');
+      line(-cfg.rinkW / 2, cfg.rinkL / 2, cfg.rinkW / 2, cfg.rinkL / 2, 'rgba(255,255,255,0.65)', 3, [18, 12]);
+      const cp = P(0, 0, cfg.rinkL / 2);
+      ctx.strokeStyle = 'rgba(255,255,255,0.65)'; ctx.lineWidth = 3;
       ctx.beginPath(); ctx.ellipse(cp.sx, cp.sy, 0.9 * cp.scale, 0.33 * cp.scale, 0, 0, Math.PI * 2); ctx.stroke();
-      // house along the left (side wall with windows + porch steps)
-      const hz0 = nearZ + 0.5, hz1 = cfg.rinkL - 2;
-      const hx = -cfg.rinkW / 2 - 2.2;
-      const wallH = 5.5;
-      const q0 = pr.project(hx, 0, hz0), q1 = pr.project(hx, 0, hz1), q2 = pr.project(hx, wallH, hz1), q3 = pr.project(hx, wallH, hz0);
+      // ---- the evergreen line: along the right and across the far end ----
+      const trees: { x: number; z: number; h: number; seed: number }[] = [];
+      const hedgeX = cfg.rinkW / 2 + 1.6;
+      for (let z = nearZ + 0.8; z < farZ + 2; z += 1.7) trees.push({ x: hedgeX + (r() - 0.5) * 0.5, z: z + (r() - 0.5) * 0.3, h: 1.8 + r() * 0.5, seed: 500 + Math.round(z * 10) });
+      for (let x = -16; x <= 16; x += 1.7) trees.push({ x: x + (r() - 0.5) * 0.4, z: farZ + 2.2 + r() * 0.8, h: 1.8 + r() * 0.5, seed: 600 + Math.round(x * 10) });
+      const backRow = trees.map((t) => ({ x: t.x + (t.x > hedgeX - 1 && t.z < farZ + 1.5 ? 1.6 : (r() - 0.5)), z: t.z + (t.z > farZ + 1.5 ? 1.8 : (r() - 0.5) * 0.6), h: t.h * 1.3, seed: t.seed + 1000 }));
+      [...backRow, ...trees].sort((p1, p2) => p2.z - p1.z).forEach((t) => {
+        const p = P(t.x, 0, t.z);
+        if (!p.visible || p.sx < -200 || p.sx > W + 200) return;
+        const haze = Math.max(0, Math.min(0.4, (t.z - 14) / 70));
+        if (t.seed % 7 === 0) paintPineHD(ctx, p.sx, p.sy, t.h * p.scale * 1.1, t.seed, { haze });
+        else paintCypress(ctx, p.sx, p.sy, t.h * p.scale, t.seed, { haze });
+      });
+      // ---- the house along the left: white siding, blue shutters, grey roof ----
+      const hx = -cfg.rinkW / 2 - 2.4;        // wall facing the driveway
+      const hz0 = nearZ + 0.4, hz1 = cfg.rinkL - 1.5;
+      const wallH = 3.0, ridgeH = 5.8, ridgeX = hx - 5.5, backX = hx - 11;
+      // far gable wall (seen at an angle)
+      const g0 = P(backX, 0, hz1), g1 = P(hx, 0, hz1), g2 = P(hx, wallH, hz1), g3 = P(backX, wallH, hz1);
+      const gg = ctx.createLinearGradient(g0.sx, 0, g1.sx, 0);
+      gg.addColorStop(0, '#d9d4c8'); gg.addColorStop(1, '#ebe6da');
+      poly([g0, g1, g2, g3], gg, 'rgba(40,30,20,0.45)');
+      poly([g3, g2, P(ridgeX, ridgeH, hz1)], '#e4dfd3', 'rgba(40,30,20,0.45)');
+      // side wall along the driveway, lit from the upper left
+      const q0 = P(hx, 0, hz0), q1 = P(hx, 0, hz1), q2 = P(hx, wallH, hz1), q3 = P(hx, wallH, hz0);
       const wg = ctx.createLinearGradient(0, q3.sy, 0, q0.sy);
-      wg.addColorStop(0, '#f5ecd3'); wg.addColorStop(1, '#d8c9a3');
-      ctx.fillStyle = wg;
-      ctx.beginPath(); ctx.moveTo(q0.sx, q0.sy); ctx.lineTo(q1.sx, q1.sy); ctx.lineTo(q2.sx, q2.sy); ctx.lineTo(q3.sx, q3.sy); ctx.closePath(); ctx.fill();
-      ctx.strokeStyle = 'rgba(0,0,0,0.3)'; ctx.lineWidth = 2; ctx.stroke();
-      // siding lines
-      ctx.strokeStyle = 'rgba(0,0,0,0.1)';
-      for (let h = 0.3; h < wallH; h += 0.3) {
-        const s0 = pr.project(hx, h, hz0), s1 = pr.project(hx, h, hz1);
-        ctx.beginPath(); ctx.moveTo(s0.sx, s0.sy); ctx.lineTo(s1.sx, s1.sy); ctx.stroke();
+      wg.addColorStop(0, '#fbf8f0'); wg.addColorStop(0.7, '#efeadd'); wg.addColorStop(1, '#d9d2c2');
+      poly([q0, q1, q2, q3], wg, 'rgba(40,30,20,0.5)');
+      ctx.strokeStyle = 'rgba(0,0,0,0.09)';
+      ctx.lineWidth = 1;
+      for (let h = 0.22; h < wallH; h += 0.22) {
+        const l0 = P(hx, h, hz0), l1 = P(hx, h, hz1);
+        ctx.beginPath(); ctx.moveTo(l0.sx, l0.sy); ctx.lineTo(l1.sx, l1.sy); ctx.stroke();
       }
-      // stone foundation
-      const b0 = pr.project(hx, 0.9, hz0), b1 = pr.project(hx, 0.9, hz1);
-      ctx.fillStyle = '#9a9388';
-      ctx.beginPath(); ctx.moveTo(q0.sx, q0.sy); ctx.lineTo(q1.sx, q1.sy); ctx.lineTo(b1.sx, b1.sy); ctx.lineTo(b0.sx, b0.sy); ctx.closePath(); ctx.fill();
-      // windows with green shutters
-      for (let z = hz0 + 2; z < hz1 - 2; z += 4.5) {
-        const w0 = pr.project(hx, 2.2, z), w1 = pr.project(hx, 2.2, z + 1.4), w2 = pr.project(hx, 3.8, z + 1.4), w3 = pr.project(hx, 3.8, z);
-        ctx.fillStyle = '#9fd3ff';
-        ctx.beginPath(); ctx.moveTo(w0.sx, w0.sy); ctx.lineTo(w1.sx, w1.sy); ctx.lineTo(w2.sx, w2.sy); ctx.lineTo(w3.sx, w3.sy); ctx.closePath(); ctx.fill();
-        ctx.strokeStyle = '#ffffff'; ctx.lineWidth = 3; ctx.stroke();
-        const s0 = pr.project(hx, 2.2, z - 0.45), s1 = pr.project(hx, 3.8, z - 0.45);
-        ctx.fillStyle = '#2e5d3a';
-        ctx.beginPath(); ctx.moveTo(s0.sx, s0.sy); ctx.lineTo(w0.sx, w0.sy); ctx.lineTo(w3.sx, w3.sy); ctx.lineTo(s1.sx, s1.sy); ctx.closePath(); ctx.fill();
-        const t0 = pr.project(hx, 2.2, z + 1.85), t1 = pr.project(hx, 3.8, z + 1.85);
-        ctx.beginPath(); ctx.moveTo(w1.sx, w1.sy); ctx.lineTo(t0.sx, t0.sy); ctx.lineTo(t1.sx, t1.sy); ctx.lineTo(w2.sx, w2.sy); ctx.closePath(); ctx.fill();
+      // roof slope up to the ridge, with shingle lines and a chimney
+      const r0 = P(hx + 0.35, wallH, hz0 - 0.3), r1 = P(hx + 0.35, wallH, hz1 + 0.3), r2 = P(ridgeX, ridgeH, hz1 + 0.3), r3 = P(ridgeX, ridgeH, hz0 - 0.3);
+      const rg = ctx.createLinearGradient(0, r3.sy, 0, r0.sy);
+      rg.addColorStop(0, '#8d8d8b'); rg.addColorStop(1, '#55544f');
+      poly([r0, r1, r2, r3], rg, 'rgba(30,30,30,0.6)');
+      ctx.strokeStyle = 'rgba(0,0,0,0.13)';
+      for (let k = 1; k < 8; k++) {
+        const t = k / 8;
+        const l0 = P(hx + 0.35 + (ridgeX - hx - 0.35) * t, wallH + (ridgeH - wallH) * t, hz0 - 0.3);
+        const l1 = P(hx + 0.35 + (ridgeX - hx - 0.35) * t, wallH + (ridgeH - wallH) * t, hz1 + 0.3);
+        ctx.beginPath(); ctx.moveTo(l0.sx, l0.sy); ctx.lineTo(l1.sx, l1.sy); ctx.stroke();
       }
-      // roof edge
-      const r0 = pr.project(hx - 0.6, wallH + 0.2, hz0 - 0.5), r1 = pr.project(hx - 0.6, wallH + 0.2, hz1 + 0.5), r2 = pr.project(hx + 1.2, wallH + 0.9, hz1 + 0.5), r3 = pr.project(hx + 1.2, wallH + 0.9, hz0 - 0.5);
-      ctx.fillStyle = '#4a3328';
-      ctx.beginPath(); ctx.moveTo(r0.sx, r0.sy); ctx.lineTo(r1.sx, r1.sy); ctx.lineTo(r2.sx, r2.sy); ctx.lineTo(r3.sx, r3.sy); ctx.closePath(); ctx.fill();
-      // shrubs along the house foundation and the right-hand hedge of small pines
-      for (let z = nearZ + 1; z < cfg.rinkL; z += 1.6) {
-        const p = pr.project(-cfg.rinkW / 2 - 1.1, 0, z);
-        paintTreeSide(ctx, p.sx, p.sy, 0.9 * p.scale, 400 + Math.round(z * 10));
+      poly([P(ridgeX - 0.4, ridgeH - 0.2, cfg.rinkL * 0.55), P(ridgeX + 0.4, ridgeH - 0.2, cfg.rinkL * 0.55), P(ridgeX + 0.4, ridgeH + 0.9, cfg.rinkL * 0.55), P(ridgeX - 0.4, ridgeH + 0.9, cfg.rinkL * 0.55)], '#8f8f8d', 'rgba(0,0,0,0.4)');
+      // gutter / fascia
+      poly([P(hx + 0.35, wallH - 0.12, hz0 - 0.3), P(hx + 0.35, wallH - 0.12, hz1 + 0.3), P(hx + 0.35, wallH + 0.06, hz1 + 0.3), P(hx + 0.35, wallH + 0.06, hz0 - 0.3)], '#f3f1ea', 'rgba(0,0,0,0.25)', 1);
+      // foundation
+      poly([q0, q1, P(hx, 0.3, hz1), P(hx, 0.3, hz0)], '#b5b0a4', 'rgba(0,0,0,0.3)', 1);
+      // windows with blue shutters, a side door with a light
+      const win = (zc: number, w: number, hBottom: number, hTop: number) => {
+        const wa = P(hx, hBottom, zc - w / 2), wb = P(hx, hBottom, zc + w / 2), wc = P(hx, hTop, zc + w / 2), wd = P(hx, hTop, zc - w / 2);
+        const glass = ctx.createLinearGradient(wd.sx, wd.sy, wb.sx, wb.sy);
+        glass.addColorStop(0, '#cfe8ff'); glass.addColorStop(0.5, '#8ec3f0'); glass.addColorStop(1, '#5d8fbf');
+        poly([wa, wb, wc, wd], glass, '#ffffff', 3);
+        const mid = P(hx, (hBottom + hTop) / 2, zc - w / 2), mid2 = P(hx, (hBottom + hTop) / 2, zc + w / 2);
+        const vt = P(hx, hTop, zc), vb = P(hx, hBottom, zc);
+        ctx.strokeStyle = '#ffffff'; ctx.lineWidth = 2;
+        ctx.beginPath(); ctx.moveTo(mid.sx, mid.sy); ctx.lineTo(mid2.sx, mid2.sy); ctx.moveTo(vt.sx, vt.sy); ctx.lineTo(vb.sx, vb.sy); ctx.stroke();
+        const sh = 0.3;
+        const sg = ctx.createLinearGradient(0, wd.sy, 0, wa.sy);
+        sg.addColorStop(0, '#3a62c9'); sg.addColorStop(1, '#22418f');
+        poly([P(hx, hBottom, zc - w / 2 - sh), wa, wd, P(hx, hTop, zc - w / 2 - sh)], sg, 'rgba(0,0,0,0.4)', 1);
+        poly([wb, P(hx, hBottom, zc + w / 2 + sh), P(hx, hTop, zc + w / 2 + sh), wc], sg, 'rgba(0,0,0,0.4)', 1);
+      };
+      for (let z = hz0 + 2.5; z < hz1 - 2; z += 4.4) win(z, 1.1, 1.1, 2.4);
+      const doorZ = hz0 + 9.5;
+      poly([P(hx, 0.3, doorZ), P(hx, 0.3, doorZ + 0.9), P(hx, 2.3, doorZ + 0.9), P(hx, 2.3, doorZ)], '#2c4fb8', 'rgba(0,0,0,0.4)', 1);
+      const lamp = P(hx, 2.6, doorZ + 0.45);
+      ctx.fillStyle = '#ffe9a8';
+      ctx.beginPath(); ctx.arc(lamp.sx, lamp.sy, Math.max(2, 0.08 * lamp.scale), 0, Math.PI * 2); ctx.fill();
+      // low clipped shrubs along the foundation (no trunks), perspective sized
+      for (let z = hz0 + 0.6; z < hz1; z += 1.1) {
+        const p = P(hx + 0.6, 0, z);
+        if (!p.visible) continue;
+        const sw = 0.5 * p.scale, sh = 0.42 * p.scale;
+        ctx.fillStyle = 'rgba(0,0,0,0.22)';
+        ctx.beginPath(); ctx.ellipse(p.sx + sw * 0.2, p.sy + 2, sw * 1.1, sh * 0.2, 0, 0, Math.PI * 2); ctx.fill();
+        for (let k = 0; k < 4; k++) {
+          const bx = p.sx + (k - 1.5) * sw * 0.45, by = p.sy - sh * (0.55 + (k % 2) * 0.25);
+          const br = sw * (0.45 + r() * 0.15);
+          const g = ctx.createRadialGradient(bx - br * 0.4, by - br * 0.4, br * 0.05, bx, by, br);
+          g.addColorStop(0, '#9fd25a'); g.addColorStop(0.55, '#4f9233'); g.addColorStop(1, '#1f4d1d');
+          ctx.fillStyle = g;
+          ctx.beginPath(); ctx.arc(bx, by, br, 0, Math.PI * 2); ctx.fill();
+        }
       }
-      for (let z = nearZ + 0.5; z < cfg.rinkL + 3; z += 2.2) {
-        const p = pr.project(cfg.rinkW / 2 + 1.5 + (r() - 0.5) * 0.5, 0, z);
-        paintPine(ctx, p.sx, p.sy, (2.2 + r() * 0.8) * p.scale, 500 + Math.round(z * 10));
-      }
+      paintVignette(ctx, W, H, 0.22);
       this.textures.addCanvas(key, canvas);
     }
     this.add.image(W / 2, H / 2, key).setDepth(0);
   }
 
-  /** Red-framed nets with mesh. The far net is drawn behind players; the near net's frame in front. */
+  /** The far net: red steel frame with highlights, sagging white mesh, a shadow on the driveway. */
   private drawNets(): void {
     const cfg = this.cfg;
     const pr = this.proj;
@@ -235,35 +316,60 @@ export class HockeyScene extends BaseGameScene {
       const hw = cfg.goalW / 2;
       const h = HOCKEY_VISUAL.netHeight;
       const d = cfg.goalDepth * dir;
-      const fl = pr.project(-hw, 0, z), fr = pr.project(hw, 0, z), tl = pr.project(-hw, h, z), tr = pr.project(hw, h, z);
-      const bl = pr.project(-hw, 0, z + d), br = pr.project(hw, 0, z + d), btl = pr.project(-hw, h * 0.85, z + d), btr = pr.project(hw, h * 0.85, z + d);
+      const Pp = (x: number, y: number, zz: number) => pr.project(x, y, zz);
+      const fl = Pp(-hw, 0, z), fr = Pp(hw, 0, z), tl = Pp(-hw, h, z), tr = Pp(hw, h, z);
+      const bl = Pp(-hw, 0, z + d), br = Pp(hw, 0, z + d), btl = Pp(-hw, h * 0.82, z + d), btr = Pp(hw, h * 0.82, z + d);
       if (!fl.visible || !bl.visible) return;
-      // mesh (back, sides, top)
-      g.fillStyle(0xffffff, 0.35);
+      // shadow on the ground behind the net
+      g.fillStyle(0x000000, 0.22);
+      g.fillPoints([{ x: fl.sx - 4, y: fl.sy + 2 }, { x: fr.sx + 4, y: fr.sy + 2 }, { x: br.sx + 10, y: br.sy + 1 }, { x: bl.sx - 10, y: bl.sy + 1 }], true);
+      // mesh panels (back, sides, top) with a faint white fill
+      g.fillStyle(0xffffff, 0.3);
       g.fillPoints([{ x: bl.sx, y: bl.sy }, { x: br.sx, y: br.sy }, { x: btr.sx, y: btr.sy }, { x: btl.sx, y: btl.sy }], true);
-      g.fillStyle(0xffffff, 0.22);
+      g.fillStyle(0xffffff, 0.16);
       g.fillPoints([{ x: fl.sx, y: fl.sy }, { x: bl.sx, y: bl.sy }, { x: btl.sx, y: btl.sy }, { x: tl.sx, y: tl.sy }], true);
       g.fillPoints([{ x: fr.sx, y: fr.sy }, { x: br.sx, y: br.sy }, { x: btr.sx, y: btr.sy }, { x: tr.sx, y: tr.sy }], true);
       g.fillPoints([{ x: tl.sx, y: tl.sy }, { x: tr.sx, y: tr.sy }, { x: btr.sx, y: btr.sy }, { x: btl.sx, y: btl.sy }], true);
-      g.lineStyle(1, 0xffffff, 0.5);
-      const n = 8;
+      // crossing strands with slight sag
+      const n = 10;
+      const sag = 0.06 * (btr.sx - btl.sx);
+      g.lineStyle(1, 0xffffff, 0.6);
       for (let i = 1; i < n; i++) {
         const t = i / n;
+        // verticals on the back panel
         g.lineBetween(bl.sx + (br.sx - bl.sx) * t, bl.sy + (br.sy - bl.sy) * t, btl.sx + (btr.sx - btl.sx) * t, btl.sy + (btr.sy - btl.sy) * t);
-        g.lineBetween(bl.sx + (btl.sx - bl.sx) * t, bl.sy + (btl.sy - bl.sy) * t, br.sx + (btr.sx - br.sx) * t, br.sy + (btr.sy - br.sy) * t);
+        // horizontals on the back panel, sagging in the middle
+        const y0 = bl.sy + (btl.sy - bl.sy) * t, y1 = br.sy + (btr.sy - br.sy) * t;
+        const segs = 8;
+        let px = bl.sx, py = y0;
+        for (let k = 1; k <= segs; k++) {
+          const u = k / segs;
+          const nx = bl.sx + (br.sx - bl.sx) * u;
+          const ny = y0 + (y1 - y0) * u + Math.sin(u * Math.PI) * sag * (1 - t) * 0.4;
+          g.lineBetween(px, py, nx, ny);
+          px = nx; py = ny;
+        }
+        // side panels
+        g.lineBetween(fl.sx + (bl.sx - fl.sx) * t, fl.sy + (bl.sy - fl.sy) * t, tl.sx + (btl.sx - tl.sx) * t, tl.sy + (btl.sy - tl.sy) * t);
+        g.lineBetween(fr.sx + (br.sx - fr.sx) * t, fr.sy + (br.sy - fr.sy) * t, tr.sx + (btr.sx - tr.sx) * t, tr.sy + (btr.sy - tr.sy) * t);
+        // top panel
+        g.lineBetween(tl.sx + (tr.sx - tl.sx) * t, tl.sy + (tr.sy - tl.sy) * t, btl.sx + (btr.sx - btl.sx) * t, btl.sy + (btr.sy - btl.sy) * t);
       }
-      // red frame
-      const w = Math.max(3, 0.08 * fl.scale);
-      g.lineStyle(w, 0xd32f2f, 1);
-      g.lineBetween(fl.sx, fl.sy, tl.sx, tl.sy);
-      g.lineBetween(fr.sx, fr.sy, tr.sx, tr.sy);
-      g.lineBetween(tl.sx, tl.sy, tr.sx, tr.sy);
-      g.lineStyle(Math.max(2, w * 0.7), 0xd32f2f, 1);
-      g.lineBetween(tl.sx, tl.sy, btl.sx, btl.sy);
-      g.lineBetween(tr.sx, tr.sy, btr.sx, btr.sy);
-      g.lineBetween(bl.sx, bl.sy, btl.sx, btl.sy);
-      g.lineBetween(br.sx, br.sy, btr.sx, btr.sy);
-      g.lineBetween(bl.sx, bl.sy, br.sx, br.sy);
+      // red steel frame: dark edge, red body, light highlight
+      const w = Math.max(3, 0.085 * fl.scale);
+      const tube = (x1: number, y1: number, x2: number, y2: number, thick: number) => {
+        g.lineStyle(thick + 2, 0x7a1010, 1); g.lineBetween(x1, y1, x2, y2);
+        g.lineStyle(thick, 0xd93030, 1); g.lineBetween(x1, y1, x2, y2);
+        g.lineStyle(Math.max(1, thick * 0.3), 0xff8a80, 0.8); g.lineBetween(x1 - thick * 0.2, y1 - thick * 0.25, x2 - thick * 0.2, y2 - thick * 0.25);
+      };
+      tube(bl.sx, bl.sy, btl.sx, btl.sy, w * 0.7);
+      tube(br.sx, br.sy, btr.sx, btr.sy, w * 0.7);
+      tube(bl.sx, bl.sy, br.sx, br.sy, w * 0.7);
+      tube(tl.sx, tl.sy, btl.sx, btl.sy, w * 0.7);
+      tube(tr.sx, tr.sy, btr.sx, btr.sy, w * 0.7);
+      tube(fl.sx, fl.sy, tl.sx, tl.sy, w);
+      tube(fr.sx, fr.sy, tr.sx, tr.sy, w);
+      tube(tl.sx, tl.sy, tr.sx, tr.sy, w);
     };
     drawNet(this.netsBack, cfg.rinkL, 1);
     // The near net sits behind the camera; its frame is not drawn (see HOCKEY_VISUAL.camZ).

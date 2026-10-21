@@ -4,8 +4,8 @@ import { GAME_H, GAME_W, THEME } from '../../core/constants';
 import { Projector } from '../../core/projection';
 import { Audio } from '../../core/audio';
 import { Meter, displayStyle, textStyle, makeButton, impact, confetti, shake } from '../../core/ui';
-import { CharacterSprite } from '../../art/characters';
-import { createCanvas, paintAsphalt, paintGrass, paintHouseFront, paintPine, paintSky, paintTreeSide, rng } from '../../art/environment';
+import { CharacterSprite, FRAME, handPositions, type PoseName } from '../../art/characters';
+import { createCanvas, paintCypress, paintHaze, paintLawnHD, paintPineHD, paintSkyHD, paintTreeHD, paintVignette, rng } from '../../art/environment';
 import { DEFAULT_BATTING, aiSwing, computeContact, simulateFlight, type BattingConfig, type Flight, type Contact } from './batting';
 import { DEFAULT_DERBY_RULES, acknowledgeSwitch, applyOutcome, createDerby, type DerbyState } from './rules';
 
@@ -15,7 +15,7 @@ export const DERBY_VISUAL = {
   camZ: 5.2,
   camH: 2.1,
   /** Pitcher position (m): on the lawn just left of the driveway, inside the fair wedge. */
-  pitcherX: -1.1,
+  pitcherX: 0.3,
   pitcherZ: 14,
   /** Displayed ball diameter in metres (exaggerated for readability). */
   ballDiameter: 0.17,
@@ -39,8 +39,12 @@ export class DerbyScene extends BaseGameScene {
   private batter!: CharacterSprite;
   private pitcher!: CharacterSprite;
   private bat!: Phaser.GameObjects.Image;
+  private swingArc!: Phaser.GameObjects.Graphics;
   private ball!: Phaser.GameObjects.Image;
   private ballShadow!: Phaser.GameObjects.Image;
+  private trail!: Phaser.GameObjects.Graphics;
+  private boardTexts: { name: Phaser.GameObjects.Text; num: Phaser.GameObjects.Text; outs: Phaser.GameObjects.Text }[] | null = null;
+  private trailPts: { x: number; y: number; r: number }[] = [];
   private reticle!: Phaser.GameObjects.Container;
   private aim = { x: 0, y: 0 }; // px offsets
   private aimCenter = { x: 0, y: 0 };
@@ -81,20 +85,23 @@ export class DerbyScene extends BaseGameScene {
     this.pitcher.setDepth(100).idle();
     const plate = this.proj.project(0, 0, 0);
     this.plateScreen = { x: plate.sx, y: plate.sy };
-    const bx = P ? W * 0.70 : W * 0.63;
-    const by = Math.min(this.fieldBottom + 40, plate.sy + (P ? 150 : 120));
+    const bx = plate.sx - (P ? 230 : 300);
+    const by = plate.sy + (P ? 60 : 40);
     this.batter = new CharacterSprite(this, bx, by, this.players[0].character, P ? 1.45 : 1.6);
-    this.batter.setDepth(500).setPose('back-swing0');
+    this.batter.setDepth(500).setPose('back-bat0');
     this.bat = this.add.image(0, 0, 'bat').setOrigin(0.05, 0.5).setDepth(501).setScale(P ? 1.3 : 1.45);
-    this.positionBat('swing0');
+    this.swingArc = this.add.graphics().setDepth(499);
+    this.positionBat('bat0');
     // Ball
     this.ballShadow = this.add.image(0, 0, 'shadow').setDepth(90).setVisible(false);
+    this.trail = this.add.graphics().setDepth(399);
     this.ball = this.add.image(0, 0, 'baseball').setDepth(400).setVisible(false);
     // Contact point / aim centre
     const c = this.proj.project(this.contactWorld.x, this.contactWorld.y, this.contactWorld.z);
     this.aimCenter = { x: c.sx, y: c.sy };
     this.reticle = this.buildReticle().setDepth(600);
     this.preview = this.add.graphics().setDepth(80);
+    this.buildScoreboardText();
     // Controls panel
     this.buildControls();
     this.setTurn(0);
@@ -103,6 +110,10 @@ export class DerbyScene extends BaseGameScene {
   }
 
   // ---------- Presentation setup ----------
+  /**
+   * The backyard as seen from the plate: lawn ahead, the evergreen line wrapping around the left,
+   * back and right of the yard (the house is behind the batter and never in view).
+   */
   private paintBackground(): void {
     const W = this.W, H = this.H;
     const key = `derby-bg-${W}x${H}`;
@@ -111,163 +122,198 @@ export class DerbyScene extends BaseGameScene {
       const pr = this.proj;
       const horizon = pr.cam.horizonY;
       const r = rng(77);
-      paintSky(ctx, W, H, horizon + 2);
-      // Lawn everywhere below the horizon
-      paintGrass(ctx, 0, horizon, W, H - horizon, 4, '#5c9a3a');
-      // Distant neighbourhood beyond the back hedge: roofs and big old trees
-      for (let i = 0; i < 12; i++) {
-        const x = -58 + i * 9 + r() * 4;
-        const z = 70 + r() * 20;
-        const p = pr.project(x, 0, z);
-        paintHouseFront(ctx, p.sx - 4 * p.scale, p.sy - 5 * p.scale, 8 * p.scale, 5 * p.scale, { siding: ['#f1e6c8', '#d9e4f0', '#e8d4c0'][i % 3] });
-      }
-      for (let i = 0; i < 24; i++) {
-        const x = -70 + i * 6 + r() * 3;
-        const z = 58 + r() * 22;
-        const p = pr.project(x, 0, z);
-        paintTreeSide(ctx, p.sx, p.sy, 8 * p.scale, 100 + i);
-      }
-      // The long driveway: the batter stands at its street end, it runs straight away from the camera.
-      const dw = 1.9;
-      const d0 = pr.project(-dw, 0, -4.8), d1 = pr.project(dw, 0, -4.8), d2 = pr.project(dw, 0, 32), d3 = pr.project(-dw, 0, 32);
-      ctx.save();
-      ctx.beginPath(); ctx.moveTo(d0.sx, d0.sy); ctx.lineTo(d1.sx, d1.sy); ctx.lineTo(d2.sx, d2.sy); ctx.lineTo(d3.sx, d3.sy); ctx.closePath(); ctx.clip();
-      paintAsphalt(ctx, 0, horizon, W, H - horizon, 5, '#6f6e6a');
-      // grass growing in the cracks, as in the photo
-      ctx.strokeStyle = 'rgba(95,150,60,0.55)';
-      for (let z = -4; z < 30; z += 2.2 + r() * 2) {
-        const a = pr.project(-dw + r() * 0.8, 0, z), b = pr.project(dw - r() * 0.8, 0, z + (r() - 0.5) * 0.4);
-        ctx.lineWidth = Math.max(1, 0.025 * a.scale);
-        ctx.beginPath(); ctx.moveTo(a.sx, a.sy); ctx.lineTo(b.sx, b.sy); ctx.stroke();
-      }
-      const seam = pr.project(0.15, 0, -4.8), seam2 = pr.project(0.15, 0, 32);
-      ctx.lineWidth = 1.5; ctx.beginPath(); ctx.moveTo(seam.sx, seam.sy); ctx.lineTo(seam2.sx, seam2.sy); ctx.stroke();
-      ctx.restore();
-      // Fair wedge tint, foul lines and the home-run hedge line
-      const cen = this.cfg.fairCenterDeg, half = this.cfg.fairAngleDeg;
+      const cfg = this.cfg;
+      paintSkyHD(ctx, W, H, horizon + 2, { sunX: W * 0.72, sunY: horizon * 0.28 });
+      // beyond the tree line: the big old woods behind the neighbourhood, hazy with distance
+      const woods: { x: number; z: number; s: number; seed: number }[] = [];
+      for (let i = 0; i < 40; i++) woods.push({ x: -90 + i * 4.6 + r() * 3, z: cfg.boundaryZ + 14 + r() * 40, s: 7 + r() * 6, seed: 100 + i });
+      woods.sort((a, b) => b.z - a.z).forEach((t) => {
+        const p = pr.project(t.x, 0, t.z);
+        const haze = Math.min(0.8, 0.3 + (t.z - cfg.boundaryZ) / 70);
+        if (t.seed % 3 === 0) paintPineHD(ctx, p.sx, p.sy, t.s * 1.3 * p.scale, t.seed, { haze });
+        else paintTreeHD(ctx, p.sx, p.sy, t.s * p.scale, t.seed, { haze });
+      });
+      paintHaze(ctx, W, horizon, 110);
+      // the lawn: everything inside the tree line, plus a margin
+      paintLawnHD(ctx, pr, { x0: -cfg.yardLeft - 6, x1: cfg.yardRight + 6, z0: -6, z1: cfg.boundaryZ + 6 }, { seed: 4, base: '#5a9a3a', stripeWidth: 3.4 });
+      // fair wedge tint, foul lines, home run line along the hedge
+      const cen = cfg.fairCenterDeg, half = cfg.fairAngleDeg;
       const ray = (deg: number, dist: number) => pr.project(Math.sin((deg * Math.PI) / 180) * dist, 0, Math.cos((deg * Math.PI) / 180) * dist);
       const home = pr.project(0, 0, 0);
-      const fl = ray(cen - half, 70), fr = ray(cen + half, 70);
-      ctx.fillStyle = 'rgba(255,255,150,0.09)';
+      const flDist = Math.min(cfg.boundaryZ / Math.cos(((cen - half) * Math.PI) / 180), cfg.yardLeft / Math.max(0.05, Math.sin(((half - cen) * Math.PI) / 180)));
+      const frDist = Math.min(cfg.boundaryZ / Math.cos(((cen + half) * Math.PI) / 180), cfg.yardRight / Math.max(0.05, Math.sin(((half + cen) * Math.PI) / 180)));
+      const fl = ray(cen - half, flDist), fr = ray(cen + half, frDist);
+      ctx.fillStyle = 'rgba(255,255,160,0.07)';
       ctx.beginPath(); ctx.moveTo(home.sx, home.sy); ctx.lineTo(fl.sx, fl.sy); ctx.lineTo(fr.sx, fr.sy); ctx.closePath(); ctx.fill();
-      ctx.strokeStyle = 'rgba(255,255,255,0.85)';
-      ctx.lineWidth = 3;
-      ctx.beginPath(); ctx.moveTo(home.sx, home.sy); ctx.lineTo(fl.sx, fl.sy); ctx.stroke();
-      ctx.beginPath(); ctx.moveTo(home.sx, home.sy); ctx.lineTo(fr.sx, fr.sy); ctx.stroke();
-      const bz = this.cfg.boundaryZ;
-      const bl = pr.project(-34, 0, bz), br = pr.project(4, 0, bz);
-      ctx.setLineDash([14, 10]);
-      ctx.strokeStyle = 'rgba(255,215,0,0.95)';
-      ctx.lineWidth = 4;
+      const chalk = (a: { sx: number; sy: number }, b: { sx: number; sy: number }, w: number) => {
+        ctx.strokeStyle = 'rgba(255,255,255,0.9)'; ctx.lineWidth = w; ctx.lineCap = 'round';
+        ctx.beginPath(); ctx.moveTo(a.sx, a.sy); ctx.lineTo(b.sx, b.sy); ctx.stroke();
+      };
+      chalk(home, fl, 3.5); chalk(home, fr, 3.5);
+      ctx.setLineDash([16, 12]);
+      ctx.strokeStyle = 'rgba(255,215,0,0.9)'; ctx.lineWidth = 4;
+      const bl = pr.project(-cfg.yardLeft, 0, cfg.boundaryZ - 1.2), br = pr.project(cfg.yardRight, 0, cfg.boundaryZ - 1.2);
       ctx.beginPath(); ctx.moveTo(bl.sx, bl.sy); ctx.lineTo(br.sx, br.sy); ctx.stroke();
+      const ll0 = pr.project(-cfg.yardLeft + 1.2, 0, 2), ll1 = pr.project(-cfg.yardLeft + 1.2, 0, cfg.boundaryZ - 1.2);
+      const rl0 = pr.project(cfg.yardRight - 1.2, 0, 2), rl1 = pr.project(cfg.yardRight - 1.2, 0, cfg.boundaryZ - 1.2);
+      ctx.beginPath(); ctx.moveTo(ll0.sx, ll0.sy); ctx.lineTo(ll1.sx, ll1.sy); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(rl0.sx, rl0.sy); ctx.lineTo(rl1.sx, rl1.sy); ctx.stroke();
       ctx.setLineDash([]);
-      // Hedge rows (childhood-sized evergreens with gaps): back of the yard, left side, right side of the driveway.
-      const hedge: { x: number; z: number; h: number; seed: number }[] = [];
-      for (let x = -34; x <= 4; x += 2.3) hedge.push({ x: x + (r() - 0.5) * 0.6, z: bz + 0.8 + r() * 1.2, h: this.cfg.treeHeight * (0.95 + r() * 0.3), seed: 300 + Math.round(x) });
-      for (let z = 26; z < bz; z += 2.3) hedge.push({ x: -34 + (r() - 0.5) * 0.6, z, h: this.cfg.treeHeight * (0.95 + r() * 0.3), seed: 400 + Math.round(z) });
-      for (let z = 3; z < 44; z += 2.3) hedge.push({ x: 3.4 + (r() - 0.5) * 0.4, z, h: this.cfg.treeHeight * (0.95 + r() * 0.3), seed: 500 + Math.round(z) });
-      hedge.sort((a, b) => b.z - a.z);
-      const nearHedge = hedge.filter((t) => t.z < 24 && t.x > 0);
-      const farHedge = hedge.filter((t) => !(t.z < 24 && t.x > 0));
-      farHedge.forEach((t) => { const p = pr.project(t.x, 0, t.z); paintPine(ctx, p.sx, p.sy, t.h * p.scale * 1.08, t.seed); });
-      // Vinnie's house on the left of the driveway (white siding, blue shutters, grey roof, chimney)
-      this.paintHouse(ctx);
-      nearHedge.forEach((t) => { const p = pr.project(t.x, 0, t.z); paintPine(ctx, p.sx, p.sy, t.h * p.scale * 1.08, t.seed); });
-      // Home plate: a chalk pentagon at the end of the driveway, pitcher's rubber on the lawn
+      // the evergreen line wrapping around three sides, with childhood-sized trees and small gaps
+      const trees: { x: number; z: number; h: number; seed: number }[] = [];
+      const spacing = 2.1;
+      for (let x = -cfg.yardLeft; x <= cfg.yardRight; x += spacing) trees.push({ x: x + (r() - 0.5) * 0.5, z: cfg.boundaryZ + 0.6 + r() * 0.8, h: cfg.treeHeight * (0.9 + r() * 0.35), seed: 300 + Math.round(x * 3) });
+      for (let z = 1.5; z < cfg.boundaryZ; z += spacing) {
+        trees.push({ x: -cfg.yardLeft - 0.4 + (r() - 0.5) * 0.5, z: z + (r() - 0.5) * 0.4, h: cfg.treeHeight * (0.9 + r() * 0.35), seed: 400 + Math.round(z * 3) });
+        trees.push({ x: cfg.yardRight + 0.4 + (r() - 0.5) * 0.5, z: z + (r() - 0.5) * 0.4, h: cfg.treeHeight * (0.9 + r() * 0.35), seed: 500 + Math.round(z * 3) });
+      }
+      // a second, slightly taller row behind the first makes the line read as a solid wall of green
+      const backRow = trees.map((t) => ({ x: t.x + (t.x < -cfg.yardLeft + 1 ? -1.8 : t.x > cfg.yardRight - 1 ? 1.8 : (r() - 0.5) * 1.2), z: t.z + (Math.abs(t.z - cfg.boundaryZ) < 3 ? 2 : (r() - 0.5) * 0.8), h: t.h * 1.3, seed: t.seed + 1000 }));
+      [...backRow, ...trees].sort((a, b) => b.z - a.z).forEach((t) => {
+        const p = pr.project(t.x, 0, t.z);
+        if (!p.visible) return;
+        const haze = Math.max(0, Math.min(0.45, (t.z - 20) / 90));
+        if (t.seed % 7 === 0) paintPineHD(ctx, p.sx, p.sy, t.h * p.scale * 1.1, t.seed, { haze });
+        else paintCypress(ctx, p.sx, p.sy, t.h * p.scale, t.seed, { haze });
+      });
+      // home plate (a real rubber plate) and a worn dirt patch
       const ps = home.scale;
+      const dirt = ctx.createRadialGradient(home.sx, home.sy, 0, home.sx, home.sy, 2.2 * ps);
+      dirt.addColorStop(0, 'rgba(140,110,70,0.45)'); dirt.addColorStop(1, 'rgba(140,110,70,0)');
+      ctx.fillStyle = dirt;
+      ctx.beginPath(); ctx.ellipse(home.sx, home.sy, 2.2 * ps, 0.8 * ps, 0, 0, Math.PI * 2); ctx.fill();
       ctx.fillStyle = '#f4f1e8';
       ctx.strokeStyle = 'rgba(0,0,0,0.4)'; ctx.lineWidth = 2;
       const pw = 0.43 * ps, ph = 0.16 * ps;
       ctx.beginPath();
       ctx.moveTo(home.sx - pw, home.sy - ph * 0.6); ctx.lineTo(home.sx + pw, home.sy - ph * 0.6); ctx.lineTo(home.sx + pw, home.sy + ph * 0.2); ctx.lineTo(home.sx, home.sy + ph); ctx.lineTo(home.sx - pw, home.sy + ph * 0.2); ctx.closePath();
       ctx.fill(); ctx.stroke();
-      const pm = pr.project(DERBY_VISUAL.pitcherX, 0, DERBY_VISUAL.pitcherZ + 0.6);
-      ctx.fillStyle = 'rgba(255,255,255,0.85)';
-      ctx.fillRect(pm.sx - 0.3 * pm.scale, pm.sy - 2, 0.6 * pm.scale, 4);
-      // Boundary label over the back hedge
-      const lbl = pr.project(-4, 3.6, bz + 1);
+      // bucket of baseballs beside the plate
+      const bk = pr.project(1.9, 0, 0.6);
+      const bs = bk.scale;
+      ctx.fillStyle = 'rgba(0,0,0,0.25)';
+      ctx.beginPath(); ctx.ellipse(bk.sx + 0.1 * bs, bk.sy + 2, 0.36 * bs, 0.12 * bs, 0, 0, Math.PI * 2); ctx.fill();
+      const bg = ctx.createLinearGradient(bk.sx - 0.3 * bs, 0, bk.sx + 0.3 * bs, 0);
+      bg.addColorStop(0, '#f4f4f4'); bg.addColorStop(0.5, '#d8d8d8'); bg.addColorStop(1, '#9a9a9a');
+      ctx.fillStyle = bg;
+      ctx.beginPath(); ctx.moveTo(bk.sx - 0.27 * bs, bk.sy - 0.45 * bs); ctx.lineTo(bk.sx + 0.27 * bs, bk.sy - 0.45 * bs); ctx.lineTo(bk.sx + 0.23 * bs, bk.sy); ctx.lineTo(bk.sx - 0.23 * bs, bk.sy); ctx.closePath(); ctx.fill();
+      ctx.strokeStyle = 'rgba(0,0,0,0.35)'; ctx.lineWidth = 1.5; ctx.stroke();
+      for (let i = 0; i < 6; i++) { ctx.fillStyle = '#f7f3e8'; ctx.beginPath(); ctx.arc(bk.sx - 0.16 * bs + (i % 3) * 0.16 * bs, bk.sy - 0.46 * bs - Math.floor(i / 3) * 0.08 * bs, 0.065 * bs, 0, Math.PI * 2); ctx.fill(); ctx.strokeStyle = 'rgba(180,40,40,0.6)'; ctx.lineWidth = 1; ctx.stroke(); }
+      // the well cap: a short steel casing that sticks up out of the lawn; the pitcher throws from just in front of it
+      this.paintWellCap(ctx, DERBY_VISUAL.pitcherX + 0.9, DERBY_VISUAL.pitcherZ + 1.0);
+      // the homemade scoreboard standing at the right tree line
+      this.paintScoreboard(ctx);
+      // boundary label over the back hedge
+      const lbl = pr.project(0, 3.2, cfg.boundaryZ + 1);
       ctx.fillStyle = 'rgba(13,31,16,0.8)';
       ctx.font = 'bold 22px "Arial Black", Arial';
       ctx.textAlign = 'center';
-      const txt = 'HOME RUN — OVER THE HEDGE';
+      const txt = 'HOME RUN — OVER THE TREES';
       const tw = ctx.measureText(txt).width + 30;
       ctx.fillRect(lbl.sx - tw / 2, lbl.sy - 18, tw, 34);
       ctx.fillStyle = '#f5c518';
       ctx.fillText(txt, lbl.sx, lbl.sy + 7);
+      paintVignette(ctx, W, H, 0.22);
       this.textures.addCanvas(key, canvas);
     }
     this.add.image(W / 2, H / 2, key).setDepth(0);
   }
 
-  /** The house beside the driveway, drawn in perspective from projected corners. */
-  private paintHouse(ctx: CanvasRenderingContext2D): void {
+  /** Steel well casing cap (about 15 cm across, knee high) with a domed lid. */
+  private paintWellCap(ctx: CanvasRenderingContext2D, x: number, z: number): void {
     const pr = this.proj;
-    const wx = -3.0;      // wall facing the driveway
-    const z0 = 9, z1 = 24; // front and back of the house along the driveway
-    const wallH = 3.0, ridgeH = 5.6, ridgeX = -8.2, backX = -13.8;
-    const P = (x: number, y: number, z: number) => pr.project(x, y, z);
-    const poly = (pts: { sx: number; sy: number }[], fill: string | CanvasGradient, stroke = 'rgba(40,30,20,0.55)') => {
-      ctx.beginPath();
-      pts.forEach((p, i) => (i === 0 ? ctx.moveTo(p.sx, p.sy) : ctx.lineTo(p.sx, p.sy)));
-      ctx.closePath();
-      ctx.fillStyle = fill; ctx.fill();
-      ctx.strokeStyle = stroke; ctx.lineWidth = 2; ctx.stroke();
-    };
-    // front (street-facing) wall + gable, seen at an angle
-    const f0 = P(backX, 0, z0), f1 = P(wx, 0, z0), f2 = P(wx, wallH, z0), f3 = P(backX, wallH, z0);
-    const fg = ctx.createLinearGradient(f0.sx, 0, f1.sx, 0);
-    fg.addColorStop(0, '#d9d4c7'); fg.addColorStop(1, '#f2eee4');
-    poly([f0, f1, f2, f3], fg);
-    const gable = P(ridgeX, ridgeH, z0);
-    poly([f3, f2, gable], '#e9e4d8');
-    // side wall along the driveway
-    const s0 = P(wx, 0, z0), s1 = P(wx, 0, z1), s2 = P(wx, wallH, z1), s3 = P(wx, wallH, z0);
-    poly([s0, s1, s2, s3], '#f6f3ea');
-    ctx.strokeStyle = 'rgba(0,0,0,0.1)';
-    ctx.lineWidth = 1;
-    for (let h = 0.25; h < wallH; h += 0.25) {
-      const a = P(wx, h, z0), b = P(wx, h, z1);
-      ctx.beginPath(); ctx.moveTo(a.sx, a.sy); ctx.lineTo(b.sx, b.sy); ctx.stroke();
+    const base = pr.project(x, 0, z);
+    const top = pr.project(x, 0.55, z);
+    const s = base.scale;
+    const rw = 0.11 * s;
+    ctx.fillStyle = 'rgba(0,0,0,0.3)';
+    ctx.beginPath(); ctx.ellipse(base.sx + rw * 0.9, base.sy + 1, rw * 1.8, rw * 0.5, 0, 0, Math.PI * 2); ctx.fill();
+    const g = ctx.createLinearGradient(base.sx - rw, 0, base.sx + rw, 0);
+    g.addColorStop(0, '#5a5f66'); g.addColorStop(0.35, '#b8bec6'); g.addColorStop(0.6, '#8b9199'); g.addColorStop(1, '#3f4349');
+    ctx.fillStyle = g;
+    ctx.fillRect(base.sx - rw, top.sy, rw * 2, base.sy - top.sy);
+    ctx.fillStyle = '#2f3338';
+    ctx.beginPath(); ctx.ellipse(base.sx, base.sy, rw, rw * 0.35, 0, 0, Math.PI); ctx.fill();
+    const lid = ctx.createRadialGradient(base.sx - rw * 0.3, top.sy - rw * 0.4, rw * 0.1, base.sx, top.sy - rw * 0.2, rw * 1.4);
+    lid.addColorStop(0, '#d7dce2'); lid.addColorStop(0.6, '#8d939b'); lid.addColorStop(1, '#4a4f55');
+    ctx.fillStyle = lid;
+    ctx.beginPath(); ctx.ellipse(base.sx, top.sy - rw * 0.2, rw * 1.2, rw * 0.55, 0, 0, Math.PI * 2); ctx.fill();
+    ctx.strokeStyle = 'rgba(0,0,0,0.45)'; ctx.lineWidth = 1.5; ctx.stroke();
+    ctx.fillStyle = 'rgba(0,0,0,0.35)';
+    ctx.beginPath(); ctx.ellipse(base.sx + rw * 0.5, top.sy - rw * 0.3, rw * 0.18, rw * 0.1, 0, 0, Math.PI * 2); ctx.fill();
+    // worn grass patch where everyone stands to pitch
+    ctx.fillStyle = 'rgba(140,110,70,0.35)';
+    const pm = pr.project(x, 0, z - 1.1);
+    ctx.beginPath(); ctx.ellipse(pm.sx, pm.sy, 0.5 * pm.scale, 0.18 * pm.scale, 0, 0, Math.PI * 2); ctx.fill();
+  }
+
+  /** World position of the homemade plywood scoreboard (right tree line). */
+  private scoreboardSpec(): { x: number; z: number; w: number; h: number; postH: number } {
+    return this.portrait
+      ? { x: this.cfg.yardRight - 3.3, z: 34, w: 5.5, h: 2.8, postH: 1.0 }
+      : { x: this.cfg.yardRight - 3.3, z: 16, w: 5.5, h: 2.8, postH: 1.0 };
+  }
+
+  private paintScoreboard(ctx: CanvasRenderingContext2D): void {
+    const pr = this.proj;
+    const sb = this.scoreboardSpec();
+    const bl = pr.project(sb.x - sb.w / 2, sb.postH, sb.z), br = pr.project(sb.x + sb.w / 2, sb.postH, sb.z);
+    const tl = pr.project(sb.x - sb.w / 2, sb.postH + sb.h, sb.z), tr = pr.project(sb.x + sb.w / 2, sb.postH + sb.h, sb.z);
+    const s = bl.scale;
+    void br;
+    for (const px of [sb.x - sb.w / 2 + 0.3, sb.x + sb.w / 2 - 0.3]) {
+      const g0 = pr.project(px, 0, sb.z), g1 = pr.project(px, sb.postH + sb.h - 0.3, sb.z);
+      ctx.fillStyle = 'rgba(0,0,0,0.3)';
+      ctx.beginPath(); ctx.ellipse(g0.sx + 0.2 * s, g0.sy + 1, 0.25 * s, 0.08 * s, 0, 0, Math.PI * 2); ctx.fill();
+      const pg = ctx.createLinearGradient(g0.sx - 0.07 * s, 0, g0.sx + 0.07 * s, 0);
+      pg.addColorStop(0, '#8a6a46'); pg.addColorStop(0.5, '#b58b5c'); pg.addColorStop(1, '#5c4328');
+      ctx.fillStyle = pg;
+      ctx.fillRect(g0.sx - 0.07 * s, g1.sy, 0.14 * s, g0.sy - g1.sy);
     }
-    // roof: slope from the driveway-side eave up to the ridge
-    const r0 = P(wx + 0.3, wallH, z0 - 0.3), r1 = P(wx + 0.3, wallH, z1 + 0.3), r2 = P(ridgeX, ridgeH, z1 + 0.3), r3 = P(ridgeX, ridgeH, z0 - 0.3);
-    const rg = ctx.createLinearGradient(0, r3.sy, 0, r0.sy);
-    rg.addColorStop(0, '#8a8a88'); rg.addColorStop(1, '#5a5a58');
-    poly([r0, r1, r2, r3], rg, 'rgba(30,30,30,0.6)');
-    ctx.strokeStyle = 'rgba(0,0,0,0.12)';
-    for (let k = 1; k < 6; k++) {
-      const t = k / 6;
-      const a = P(wx + 0.3 + (ridgeX - wx - 0.3) * t, wallH + (ridgeH - wallH) * t, z0 - 0.3);
-      const b = P(wx + 0.3 + (ridgeX - wx - 0.3) * t, wallH + (ridgeH - wallH) * t, z1 + 0.3);
-      ctx.beginPath(); ctx.moveTo(a.sx, a.sy); ctx.lineTo(b.sx, b.sy); ctx.stroke();
+    ctx.fillStyle = 'rgba(0,0,0,0.35)';
+    ctx.fillRect(tl.sx + 4, tl.sy + 6, tr.sx - tl.sx, bl.sy - tl.sy);
+    const wg = ctx.createLinearGradient(0, tl.sy, 0, bl.sy);
+    wg.addColorStop(0, '#f1e3b8'); wg.addColorStop(1, '#d9c48f');
+    ctx.fillStyle = wg;
+    ctx.fillRect(tl.sx, tl.sy, tr.sx - tl.sx, bl.sy - tl.sy);
+    ctx.strokeStyle = 'rgba(70,45,20,0.45)'; ctx.lineWidth = 1;
+    for (let y = tl.sy + 6; y < bl.sy; y += 9) { ctx.beginPath(); ctx.moveTo(tl.sx + 2, y); ctx.lineTo(tr.sx - 2, y + 1); ctx.stroke(); }
+    ctx.strokeStyle = '#1d4426'; ctx.lineWidth = Math.max(2, 0.08 * s);
+    ctx.strokeRect(tl.sx + 0.08 * s, tl.sy + 0.08 * s, tr.sx - tl.sx - 0.16 * s, bl.sy - tl.sy - 0.16 * s);
+    ctx.fillStyle = '#1d4426';
+    ctx.fillRect(tl.sx + 0.08 * s, tl.sy + 0.08 * s, tr.sx - tl.sx - 0.16 * s, 0.42 * s);
+    ctx.fillStyle = '#f5c518';
+    ctx.font = `bold ${Math.max(9, 0.26 * s)}px "Arial Black", Arial`;
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillText('ACADEMY HILL DERBY', (tl.sx + tr.sx) / 2, tl.sy + 0.29 * s);
+    ctx.strokeStyle = 'rgba(29,68,38,0.6)'; ctx.lineWidth = Math.max(1, 0.04 * s);
+    ctx.beginPath(); ctx.moveTo((tl.sx + tr.sx) / 2, tl.sy + 0.55 * s); ctx.lineTo((tl.sx + tr.sx) / 2, bl.sy - 0.1 * s); ctx.stroke();
+  }
+
+  /** Dynamic scoreboard numbers, projected onto the board. */
+  private buildScoreboardText(): void {
+    const pr = this.proj;
+    const sb = this.scoreboardSpec();
+    const s = pr.project(sb.x, sb.postH, sb.z).scale;
+    const mk = (size: number, color: string) => this.add.text(0, 0, '', displayStyle(Math.max(9, size * s), color, { strokeThickness: 0, align: 'center' })).setOrigin(0.5).setDepth(85);
+    this.boardTexts = [0, 1].map((slot) => {
+      const dx = slot === 0 ? -sb.w / 4 : sb.w / 4;
+      const px = pr.project(sb.x + dx, sb.postH + sb.h - 0.75, sb.z);
+      const hr = pr.project(sb.x + dx, sb.postH + sb.h - 1.35, sb.z);
+      const ol = pr.project(sb.x + dx, sb.postH + 0.3, sb.z);
+      return { name: mk(0.24, '#1d4426').setPosition(px.sx, px.sy), num: mk(0.62, '#b3261e').setPosition(hr.sx, hr.sy), outs: mk(0.2, '#1d4426').setPosition(ol.sx, ol.sy) };
+    });
+  }
+
+  private refreshScoreboard(): void {
+    if (!this.boardTexts) return;
+    const st = this.state;
+    for (const slot of [0, 1] as const) {
+      const t = this.boardTexts[slot];
+      t.name.setText(this.name(slot).toUpperCase());
+      t.num.setText(String(st.scores[slot]));
+      t.outs.setText(`OUTS ${Math.min(st.outs[slot], st.outsLimit)}/${st.outsLimit}`);
     }
-    // chimney
-    const c0 = P(ridgeX - 0.4, ridgeH - 0.2, 15), c1 = P(ridgeX + 0.4, ridgeH - 0.2, 15), c2 = P(ridgeX + 0.4, ridgeH + 0.9, 15), c3 = P(ridgeX - 0.4, ridgeH + 0.9, 15);
-    poly([c0, c1, c2, c3], '#8f8f8d');
-    // windows with blue shutters on the driveway wall, and the side door with its light
-    const win = (zc: number, w: number, hBottom: number, hTop: number) => {
-      const a = P(wx, hBottom, zc - w / 2), b = P(wx, hBottom, zc + w / 2), c = P(wx, hTop, zc + w / 2), d = P(wx, hTop, zc - w / 2);
-      poly([a, b, c, d], '#9fd3ff', '#ffffff');
-      const sh = 0.32;
-      const l0 = P(wx, hBottom, zc - w / 2 - sh), l1 = P(wx, hBottom, zc - w / 2), l2 = P(wx, hTop, zc - w / 2), l3 = P(wx, hTop, zc - w / 2 - sh);
-      poly([l0, l1, l2, l3], '#2c4fb8', 'rgba(0,0,0,0.4)');
-      const q0 = P(wx, hBottom, zc + w / 2), q1 = P(wx, hBottom, zc + w / 2 + sh), q2 = P(wx, hTop, zc + w / 2 + sh), q3 = P(wx, hTop, zc + w / 2);
-      poly([q0, q1, q2, q3], '#2c4fb8', 'rgba(0,0,0,0.4)');
-    };
-    win(12.5, 1.1, 1.1, 2.4);
-    win(20.5, 1.1, 1.1, 2.4);
-    const door = [P(wx, 0, 16), P(wx, 0, 16.9), P(wx, 2.1, 16.9), P(wx, 2.1, 16)];
-    poly(door, '#2c4fb8', 'rgba(0,0,0,0.4)');
-    // trash can and a shrub by the back corner, like the photo
-    const tc = P(wx + 0.35, 0, 23.4);
-    ctx.fillStyle = '#4a4a4a';
-    ctx.fillRect(tc.sx - 0.3 * tc.scale, tc.sy - 0.95 * tc.scale, 0.6 * tc.scale, 0.95 * tc.scale);
-    ctx.fillStyle = '#5a5a5a';
-    ctx.fillRect(tc.sx - 0.34 * tc.scale, tc.sy - 1.02 * tc.scale, 0.68 * tc.scale, 0.12 * tc.scale);
-    const sb = P(wx + 0.6, 0, 21.5);
-    paintTreeSide(ctx, sb.sx, sb.sy, 1.3 * sb.scale, 61);
-    const foundation = [P(wx, 0, z0), P(wx, 0, z1), P(wx, 0.25, z1), P(wx, 0.25, z0)];
-    poly(foundation, '#b9b4a8', 'rgba(0,0,0,0.3)');
   }
 
   private buildReticle(): Phaser.GameObjects.Container {
@@ -373,17 +419,38 @@ export class DerbyScene extends BaseGameScene {
 
   private isHumanBatting(): boolean { return !this.isAI(this.state.batter); }
 
-  private positionBat(frame: 'swing0' | 'swing1' | 'swing2'): void {
+  /** Put the bat in the batter's hands for a batting pose; the knob sits between the hands. */
+  private positionBat(frame: 'bat0' | 'bat1' | 'bat2' | 'bat3'): void {
     const b = this.batter;
     const s = b.sprite.scale;
-    const flip = b.sprite.flipX ? -1 : 1;
-    const cfg = {
-      swing0: { dx: 10, dy: -150, angle: -70 },
-      swing1: { dx: -30, dy: -105, angle: -175 },
-      swing2: { dx: -40, dy: -70, angle: 150 },
-    }[frame];
-    this.bat.setPosition(b.x + cfg.dx * s * flip, b.y + cfg.dy * s);
-    this.bat.setAngle(cfg.angle * flip);
+    const hp = handPositions(('back-' + frame) as PoseName, b.facingDir);
+    const hx = (hp.left.x + hp.right.x) / 2;
+    const hy = (hp.left.y + hp.right.y) / 2;
+    // frame-local -> container-local (sprite is centred at (0, -FRAME/2*s + 14*s))
+    const lx = (hx - FRAME / 2) * s;
+    const ly = (hy - FRAME / 2) * s - FRAME * 0.5 * s + 14 * s;
+    const angle = { bat0: -112, bat1: -118, bat2: -6, bat3: -150 }[frame];
+    this.bat.setPosition(b.x + lx, b.y + ly);
+    this.bat.setAngle(angle);
+    this.bat.setDepth(frame === 'bat3' ? 499 : 501);
+  }
+
+  /** Quick motion-blur arc for the swing. */
+  private showSwingArc(): void {
+    const b = this.batter;
+    const s = b.sprite.scale;
+    const hp = handPositions('back-bat2', b.facingDir);
+    const cx = b.x + ((hp.left.x + hp.right.x) / 2 - FRAME / 2) * s;
+    const cy = b.y + ((hp.left.y + hp.right.y) / 2 - FRAME / 2) * s - FRAME * 0.5 * s + 14 * s;
+    const r = 150 * s;
+    this.swingArc.clear();
+    this.swingArc.setAlpha(1);
+    for (let i = 0; i < 5; i++) {
+      this.swingArc.fillStyle(0xffffff, 0.16 - i * 0.025);
+      this.swingArc.slice(cx, cy, r * (1 - i * 0.06), Phaser.Math.DegToRad(-150 + i * 10), Phaser.Math.DegToRad(10), false);
+      this.swingArc.fillPath();
+    }
+    this.tweens.add({ targets: this.swingArc, alpha: 0, duration: 220, onComplete: () => this.swingArc.clear() });
   }
 
   // ---------- Turn flow ----------
@@ -407,11 +474,11 @@ export class DerbyScene extends BaseGameScene {
     const pp = this.proj.project(DERBY_VISUAL.pitcherX, 0, DERBY_VISUAL.pitcherZ);
     this.pitcher = new CharacterSprite(this, pp.sx, pp.sy, this.players[p].character, pp.scale * 2.0 / 220 * 1.15);
     this.pitcher.setDepth(100).idle();
-    const bx = P ? W * 0.70 : W * 0.63;
-    const by = Math.min(this.fieldBottom + 40, this.plateScreen.y + (P ? 150 : 120));
+    const bx = this.plateScreen.x - (P ? 230 : 300);
+    const by = this.plateScreen.y + (P ? 60 : 40);
     this.batter = new CharacterSprite(this, bx, by, this.players[b].character, P ? 1.45 : 1.6);
-    this.batter.setDepth(500).setPose('back-swing0');
-    this.positionBat('swing0');
+    this.batter.setDepth(500).setPose('back-bat0');
+    this.positionBat('bat0');
   }
 
   private windup(): void {
@@ -437,6 +504,8 @@ export class DerbyScene extends BaseGameScene {
     this.pitcher.setAnim(['throw1', 'throw1'], 2, true);
     this.ball.setVisible(true);
     this.ballShadow.setVisible(true);
+    this.batter.setPose('back-bat1');
+    this.positionBat('bat1');
     Audio.sfx('throw');
   }
 
@@ -447,10 +516,11 @@ export class DerbyScene extends BaseGameScene {
     this.swung = true;
     this.phase = 'flight';
     // bat animation
-    this.batter.setPose('back-swing1');
-    this.positionBat('swing1');
+    this.batter.setPose('back-bat2');
+    this.positionBat('bat2');
+    this.showSwingArc();
     Audio.sfx('swing');
-    this.time.delayedCall(110, () => { this.batter.setPose('back-swing2'); this.positionBat('swing2'); });
+    this.time.delayedCall(110, () => { this.batter.setPose('back-bat3'); this.positionBat('bat3'); });
     const label = contact.timing === 'miss' ? 'MISS' : contact.timing.toUpperCase();
     const col = contact.timing === 'perfect' ? '#f5c518' : contact.timing === 'miss' ? '#ef5350' : '#8bc34a';
     this.timingLabel.setText(label).setColor(col);
@@ -495,8 +565,8 @@ export class DerbyScene extends BaseGameScene {
     }
     this.refreshHud();
     this.time.delayedCall(1100, () => {
-      this.batter.setPose('back-swing0');
-      this.positionBat('swing0');
+      this.batter.setPose('back-bat0');
+      this.positionBat('bat0');
       if (this.state.phase === 'done') return this.endMatch();
       if (this.state.phase === 'switch') {
         const nr = this.state.newRound;
@@ -527,6 +597,7 @@ export class DerbyScene extends BaseGameScene {
   }
 
   private refreshHud(): void {
+    this.refreshScoreboard();
     const s = this.state;
     for (const slot of [0, 1] as const) {
       this.setScore(slot, `${s.scores[slot]} HR  •  ${Math.min(s.outs[slot], s.outsLimit)}/${s.outsLimit} outs`);
@@ -610,9 +681,20 @@ export class DerbyScene extends BaseGameScene {
   private placeBall(x: number, y: number, z: number): void {
     const p = this.proj.project(x, y, z);
     const g = this.proj.project(x, 0, z);
-    if (!p.visible) { this.ball.setVisible(false); this.ballShadow.setVisible(false); return; }
+    if (!p.visible) { this.ball.setVisible(false); this.ballShadow.setVisible(false); this.trail.clear(); this.trailPts = []; return; }
     const px = Math.max(10, DERBY_VISUAL.ballDiameter * p.scale);
-    this.ball.setVisible(true).setPosition(p.sx, p.sy).setScale(px / 40).setDepth(400 + (100 - z));
+    this.ball.setVisible(true).setPosition(p.sx, p.sy).setScale(px / 40).setDepth(400 + (100 - z)).setAngle(this.ball.angle + 14);
+    // motion trail
+    if (this.phase === 'flight') {
+      this.trailPts.push({ x: p.sx, y: p.sy, r: px / 2 });
+      if (this.trailPts.length > 14) this.trailPts.shift();
+      this.trail.clear();
+      this.trailPts.forEach((t, i) => {
+        const a = (i / this.trailPts.length) * 0.35;
+        this.trail.fillStyle(0xffffff, a);
+        this.trail.fillCircle(t.x, t.y, t.r * (0.4 + (i / this.trailPts.length) * 0.6));
+      });
+    } else if (this.trailPts.length) { this.trail.clear(); this.trailPts = []; }
     this.ballShadow.setVisible(true).setPosition(g.sx, g.sy).setScale(px / 128 * 1.4, px / 128 * 0.7).setAlpha(Math.max(0.15, 0.6 - y * 0.03));
   }
 
