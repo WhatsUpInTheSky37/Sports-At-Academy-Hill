@@ -36,8 +36,11 @@ jobs:
           rm -rf assets
           cp -r dist/assets assets
           cp dist/index.html index.html
+          # Static files from public/ (logo, icons) land at the dist root too.
+          find dist -maxdepth 1 -type f ! -name index.html -exec cp {} . \;
           touch .nojekyll
           git add -A assets index.html .nojekyll
+          find dist -maxdepth 1 -type f ! -name index.html -printf '%f\n' | xargs -r git add --
           if git diff --cached --quiet; then
             echo "Build output unchanged"
           else
