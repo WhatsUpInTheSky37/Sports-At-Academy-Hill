@@ -112,6 +112,46 @@ function idealSpeed(dist: number, dy: number, launch: number, g: number): number
  * @param aimY reticle vertical -1..1 (negative = higher on the board = deeper target)
  */
 export function simulateShot(spot: { x: number; z: number }, offsetMs: number, aimX: number, aimY: number, cfg: ShotConfig = DEFAULT_SHOT, dt = 1 / 120): ShotResult {
+  return simulateShotPower(spot, powerFromOffset(offsetMs, cfg), aimX, aimY, cfg, dt);
+}
+
+/** Release-timing error (ms) -> power factor (1 = the ideal speed for the spot). */
+export function powerFromOffset(offsetMs: number, cfg: ShotConfig = DEFAULT_SHOT): number {
+  return 1 + (offsetMs / 100) * cfg.powerPer100Ms;
+}
+
+/** Power factor -> the equivalent timing error, so one label scale serves both control schemes. */
+export function offsetFromPower(powerFactor: number, cfg: ShotConfig = DEFAULT_SHOT): number {
+  return ((powerFactor - 1) / cfg.powerPer100Ms) * 100;
+}
+
+/** Flick control: how far to pull (fraction of screen height) for a perfect shot, and the lateral pull for full aim. */
+export const FLICK = { sweetPull: 0.26, maxPull: 0.42, lateralPull: 0.14, minPull: 0.05 };
+
+/**
+ * Map a flick (drag vector in screen px, dy negative = upward) to shot parameters. Pulling exactly
+ * `sweetPull` of the screen height is a perfect-power shot; shorter is short, longer is long.
+ */
+export function flickToShot(dx: number, dy: number, screenW: number, screenH: number): { powerFactor: number; aimX: number; pull: number } {
+  const pull = Math.max(0, -dy) / screenH;
+  const powerFactor = clamp(pull / FLICK.sweetPull, 0, FLICK.maxPull / FLICK.sweetPull);
+  const aimX = clamp(dx / screenW / FLICK.lateralPull, -1, 1);
+  return { powerFactor, aimX, pull };
+}
+
+/** Shot noise that grows with distance: close shots are nearly automatic, deep ones are a gamble. */
+export function shotNoise(spot: { x: number; z: number }): { powerSd: number; aimSd: number } {
+  const dist = Math.hypot(spot.x, spot.z);
+  return { powerSd: 0.012 + 0.006 * dist, aimSd: 0.03 + 0.015 * dist };
+}
+
+/**
+ * Simulate a shot from a power factor (1 = ideal speed for the spot; < 1 short, > 1 long).
+ * @param aimX reticle lateral -1..1
+ * @param aimY reticle vertical -1..1 (negative = higher on the board = deeper target)
+ */
+export function simulateShotPower(spot: { x: number; z: number }, powerFactor: number, aimX: number, aimY: number, cfg: ShotConfig = DEFAULT_SHOT, dt = 1 / 120): ShotResult {
+  const offsetMs = offsetFromPower(powerFactor, cfg);
   const ax = clamp(aimX, -1, 1);
   const ay = clamp(aimY, -1, 1);
   const target = { x: ax * cfg.aimLateral, y: cfg.rimHeight + 0.05, z: -ay * cfg.aimDepth };
@@ -122,7 +162,6 @@ export function simulateShot(spot: { x: number; z: number }, offsetMs: number, a
   const launchDeg = clamp(cfg.launchBaseDeg - dist * cfg.launchPerMetre, cfg.launchMinDeg, cfg.launchMaxDeg);
   const launch = (launchDeg * Math.PI) / 180;
   const v0 = idealSpeed(dist, target.y - start.y, launch, cfg.gravity);
-  const powerFactor = 1 + (offsetMs / 100) * cfg.powerPer100Ms;
   const v = v0 * clamp(powerFactor, 0.6, 1.4);
   let vx = (dx / dist) * Math.cos(launch) * v;
   let vz = (dz / dist) * Math.cos(launch) * v;

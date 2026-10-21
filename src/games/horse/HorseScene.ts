@@ -6,17 +6,17 @@ import { Audio } from '../../core/audio';
 import { Meter, displayStyle, textStyle, makeButton, impact, confetti } from '../../core/ui';
 import { CharacterSprite } from '../../art/characters';
 import { createCanvas, paintAsphalt, paintCypress, paintHaze, paintLawnHD, paintPineHD, paintSkyHD, paintTreeHD, paintVignette, rng } from '../../art/environment';
-import { DEFAULT_SHOT, SPOTS, aiChooseSpot, aiShot, simulateShot, type ShotConfig, type ShotResult, type Spot } from './shot';
+import { DEFAULT_SHOT, FLICK, SPOTS, aiChooseSpot, aiShot, flickToShot, gaussian, powerFromOffset, shotNoise, simulateShotPower, type ShotConfig, type ShotResult, type Spot } from './shot';
 import { applyShot, chooseSpot, createHorse, lettersDisplay, type HorseState } from './rules';
 
 /** Visual tuning for the HORSE scene. */
 export const HORSE_VISUAL = {
   /** Camera distance behind the shooter and height (m). */
-  camBack: 4.4,
-  camH: 2.0,
+  camBack: 5.2,
+  camH: 2.3,
   /** Camera lateral offset so the shooter stands right of centre and the hoop stays visible. */
-  camSideLandscape: -1.1,
-  camSidePortrait: -0.8,
+  camSideLandscape: -1.35,
+  camSidePortrait: -0.95,
   /** Displayed ball diameter (m), slightly exaggerated for readability. */
   ballDiameter: 0.26,
   /** Driveway half width (m) and the chalk shooting area. */
@@ -27,6 +27,10 @@ export const HORSE_VISUAL = {
   aiThinkMs: 900,
   aiShootMs: 1000,
   resultHoldMs: 1500,
+  /** Keyboard: seconds for a held shoot key to charge from zero to full power. */
+  chargeSeconds: 1.1,
+  /** How much of the flight the live preview reveals (the rest is up to you). */
+  previewFraction: 0.62,
 };
 
 type Phase = 'idle' | 'choose' | 'ready' | 'meter' | 'flight' | 'result' | 'done';
@@ -52,20 +56,22 @@ export class HorseScene extends BaseGameScene {
   private reticle!: Phaser.GameObjects.Container;
   private preview!: Phaser.GameObjects.Graphics;
   private aim = { x: 0, y: 0 }; // -1..1
-  private timingMeter!: Meter;
+  /** Current shot power (1 = perfect) while charging or flicking. */
+  private power = 0;
+  private powerBar!: Meter;
+  private powerLabel!: Phaser.GameObjects.Text;
   private timingLabel!: Phaser.GameObjects.Text;
   private powerText!: Phaser.GameObjects.Text;
   private hintText!: Phaser.GameObjects.Text;
-  private meterStart = 0;
   private meterHeld = false;
-  private aiRelease: number | null = null;
+  private aiTarget: { power: number; aimX: number } | null = null;
+  private aiChargeT = 0;
+  private flick: { x0: number; y0: number; x: number; y: number; id: number } | null = null;
   private shot: ShotResult | null = null;
   private flightT = 0;
   private flightStart = 0;
   private eventIdx = 0;
   private keys: Record<string, Phaser.Input.Keyboard.Key> = {};
-  private dragLast: { x: number; y: number } | null = null;
-  private dragMoved = false;
   private fieldTop = 0;
   private fieldBottom = 0;
   private horizon = 0;
@@ -83,7 +89,13 @@ export class HorseScene extends BaseGameScene {
     this.state = createHorse(0);
     this.spotIndex = 0;
     this.aim = { x: 0, y: 0 };
+    this.power = 0;
+    this.flick = null;
+    this.aiTarget = null;
+    this.meterHeld = false;
+    this.shot = null;
     this.phase = 'idle';
+    this.bgImage = undefined;
     this.setProjector(SPOTS[this.spotIndex]);
     this.court = this.add.graphics().setDepth(10);
     this.hoopBack = this.add.graphics().setDepth(30);
@@ -462,18 +474,12 @@ export class HorseScene extends BaseGameScene {
     // Characters
     const sp = SPOTS[this.spotIndex];
     const spp = pr.project(sp.x, 0, sp.z);
-    const sScale = (spp.scale * 2.0) / 220;
-    this.shooter.setPosition(spp.sx, spp.sy);
-    this.shooter.sprite.setScale(sScale);
-    this.shooter.shadow.setScale(1.1 * sScale, 0.9 * sScale);
-    this.shooter.sprite.setY(-220 * 0.5 * sScale + 14 * sScale);
+    const sScale = (spp.scale * 1.85) / 220;
+    this.shooter.setPosition(spp.sx, spp.sy).rescale(sScale);
     // the waiting player stands beside the hoop on the side opposite the shooter so they never overlap
     const wp = pr.project(sp.x >= 0 ? -2.6 : 2.6, 0, 0.2);
-    const wScale = (wp.scale * 2.0) / 220;
-    this.waiter.setPosition(wp.sx, wp.sy);
-    this.waiter.sprite.setScale(wScale);
-    this.waiter.shadow.setScale(1.1 * wScale, 0.9 * wScale);
-    this.waiter.sprite.setY(-220 * 0.5 * wScale + 14 * wScale);
+    const wScale = (wp.scale * 1.85) / 220;
+    this.waiter.setPosition(wp.sx, wp.sy).rescale(wScale);
     this.waiter.setFacing(sp.x >= 0 ? 1 : -1);
     this.waiter.setDepth(this.waiter.y < this.shooter.y ? 20 : 61);
     this.spotTitle?.setText(`SPOT: ${sp.name.toUpperCase()}`);
@@ -533,73 +539,101 @@ export class HorseScene extends BaseGameScene {
       kb.on('keydown-UP', () => this.cycleSpot(1));
       kb.on('keydown-W', () => this.cycleSpot(1));
     }
-    // Timing meter panel (bottom centre)
-    const mw = P ? W - 80 : 560;
-    const mx = W / 2 - mw / 2;
-    const my = P ? H - 200 : H - 110;
+    // Vertical POWER bar on the right edge of the field: pull (or hold) until the marker sits in the gold band
+    const bh = P ? 420 : 380;
+    const bx = W - (P ? 70 : 84), by = (this.fieldTop + this.fieldBottom) / 2 - bh / 2 + (P ? 40 : 0);
     const panel = this.add.graphics().setDepth(900);
     panel.fillStyle(0x0d1f10, 0.82);
-    panel.fillRoundedRect(mx - 20, my - 50, mw + 40, 120, 16);
+    panel.fillRoundedRect(bx - 34, by - 48, 68, bh + 96, 16);
     panel.lineStyle(3, THEME.accent, 0.8);
-    panel.strokeRoundedRect(mx - 20, my - 50, mw + 40, 120, 16);
-    this.add.text(W / 2, my - 38, 'SHOT TIMING', displayStyle(20, '#f5c518', { strokeThickness: 0 })).setOrigin(0.5, 0).setDepth(901);
-    const pa = this.cfg.perfectAt;
-    const ph = this.cfg.perfectMs / this.cfg.meterMs;
-    const gh = this.cfg.goodMs / this.cfg.meterMs;
-    this.timingMeter = new Meter(this, mx, my - 6, mw, 26, {
-      depth: 901, bg: 0x2a2a2a, fg: 0x000000,
+    panel.strokeRoundedRect(bx - 34, by - 48, 68, bh + 96, 16);
+    this.add.text(bx, by - 30, 'POWER', displayStyle(16, '#f5c518', { strokeThickness: 0 })).setOrigin(0.5).setDepth(901);
+    const maxP = FLICK.maxPull / FLICK.sweetPull;          // bar top
+    const perfectHalf = (this.cfg.perfectMs / 100) * this.cfg.powerPer100Ms / maxP;
+    const goodHalf = (this.cfg.goodMs / 100) * this.cfg.powerPer100Ms / maxP;
+    const sweet = 1 / maxP;
+    this.powerBar = new Meter(this, bx - 14, by, 28, bh, {
+      depth: 901, bg: 0x2a2a2a, fg: 0x4fc3f7, vertical: true,
       bands: [
-        { from: pa - gh, to: pa + gh, color: 0x8bc34a },
-        { from: pa - ph, to: pa + ph, color: 0xf5c518 },
+        { from: sweet - goodHalf, to: sweet + goodHalf, color: 0x8bc34a },
+        { from: sweet - perfectHalf, to: sweet + perfectHalf, color: 0xf5c518 },
       ],
     });
-    this.timingMeter.set(0, 0);
-    this.add.text(mx + 40, my + 34, 'EARLY = SHORT', displayStyle(16, '#8bc34a', { strokeThickness: 0 })).setOrigin(0.5).setDepth(901);
-    this.add.text(mx + mw * pa, my + 34, 'PERFECT', displayStyle(18, '#f5c518', { strokeThickness: 0 })).setOrigin(0.5).setDepth(901);
-    this.add.text(mx + mw - 40, my + 34, 'LATE = LONG', displayStyle(16, '#8bc34a', { strokeThickness: 0 })).setOrigin(0.5).setDepth(901);
-    this.timingLabel = this.add.text(W / 2, my + 7, '', displayStyle(24, '#ffffff')).setOrigin(0.5).setDepth(902);
-    // Power / hint panel (bottom-left)
-    const hw = P ? 300 : 330;
-    const hx = 30, hy = P ? H - 150 : H - 150;
-    const hint = this.add.graphics().setDepth(900);
-    hint.fillStyle(0x0d1f10, 0.82);
-    hint.fillRoundedRect(hx, hy, hw, 120, 16);
-    hint.lineStyle(3, THEME.accent, 0.8);
-    hint.strokeRoundedRect(hx, hy, hw, 120, 16);
-    this.spotTitle = this.add.text(hx + hw / 2, hy + 12, 'SPOT', displayStyle(18, '#f5c518', { strokeThickness: 0 })).setOrigin(0.5, 0).setDepth(901);
-    this.hintText = this.add.text(hx + hw / 2, hy + 44, this.useTouch ? 'Tap a chalk circle to pick a spot\nDrag on the hoop to aim' : 'Arrow keys / WASD: pick a spot\nDrag with the mouse to aim', textStyle(18, '#ffffff', { align: 'center' })).setOrigin(0.5, 0).setDepth(901);
-    this.powerText = this.add.text(hx + hw / 2, hy + 94, '', textStyle(17, THEME.textDim)).setOrigin(0.5, 0).setDepth(901);
-    // SHOOT button: hold to start the meter, release to shoot
-    const bw = 300;
-    this.shootBtn = makeButton(this, W - 30 - bw / 2, H - 90, 'SHOOT', () => { /* handled on down/up */ }, { width: bw, height: 110, fontSize: 44, depth: 900 });
-    this.shootBtn.list.forEach((o) => {
-      if (o instanceof Phaser.GameObjects.Zone) {
-        o.off('pointerup');
-        o.on('pointerdown', () => { Audio.unlock(); this.pressShoot(); });
-        o.on('pointerup', () => this.releaseShoot());
-        o.on('pointerupoutside', () => this.releaseShoot());
-        o.on('pointerout', () => this.releaseShoot());
-      }
-    });
-    this.add.text(W - 30 - bw / 2, H - 24, this.useTouch ? 'hold, release in the gold band' : 'hold SPACE / F, release in the gold band', textStyle(17, '#fff3c4')).setOrigin(0.5).setDepth(901);
-    // Drag to aim (anywhere in the field that is not a spot)
+    this.powerBar.set(0);
+    this.powerLabel = this.add.text(bx, by + bh + 30, 'short', textStyle(14, THEME.textDim)).setOrigin(0.5).setDepth(901);
+    // Bottom-centre strip: result label + hints
+    const mw = P ? W - 80 - 100 : 560;
+    const mx = P ? 40 : W / 2 - mw / 2;
+    const my = P ? H - 200 : H - 110;
+    const strip = this.add.graphics().setDepth(900);
+    strip.fillStyle(0x0d1f10, 0.82);
+    strip.fillRoundedRect(mx - 20, my - 50, mw + 40, 120, 16);
+    strip.lineStyle(3, THEME.accent, 0.8);
+    strip.strokeRoundedRect(mx - 20, my - 50, mw + 40, 120, 16);
+    this.spotTitle = this.add.text(mx + mw / 2, my - 38, 'SPOT', displayStyle(18, '#f5c518', { strokeThickness: 0 })).setOrigin(0.5, 0).setDepth(901);
+    this.hintText = this.add.text(mx + mw / 2, my - 10, this.useTouch
+      ? 'Tap a chalk circle to pick a spot, then\nput a finger on the court and FLICK UP to shoot'
+      : 'Arrows / WASD pick a spot. Flick up with the mouse to shoot,\nor hold SPACE / F and release in the gold band (A / D aim)', textStyle(P ? 16 : 17, '#ffffff', { align: 'center' })).setOrigin(0.5, 0).setDepth(901);
+    this.timingLabel = this.add.text(mx + mw / 2, my + 46, '', displayStyle(22, '#ffffff')).setOrigin(0.5).setDepth(902);
+    this.powerText = this.add.text(mx + mw / 2, my + 46, '', textStyle(17, THEME.textDim)).setOrigin(0.5).setDepth(901).setVisible(false);
+    // SHOOT button (keyboard / mouse users): hold to charge, release to shoot
+    if (!this.useTouch) {
+      const bw = P ? 240 : 280;
+      this.shootBtn = makeButton(this, W - 30 - bw / 2 - (P ? 0 : 110), H - 90, 'SHOOT', () => { /* handled on down/up */ }, { width: bw, height: 100, fontSize: 40, depth: 900 });
+      this.shootBtn.list.forEach((o) => {
+        if (o instanceof Phaser.GameObjects.Zone) {
+          o.off('pointerup');
+          o.on('pointerdown', () => { Audio.unlock(); this.pressShoot(); });
+          o.on('pointerup', () => this.releaseShoot());
+          o.on('pointerupoutside', () => this.releaseShoot());
+          o.on('pointerout', () => this.releaseShoot());
+        }
+      });
+    }
+    // Flick to shoot: press on the court, pull up, release
     this.input.on('pointerdown', (p: Phaser.Input.Pointer) => {
-      if (p.y > this.fieldTop && p.y < this.fieldBottom + 40 && !(this.shootBtn && this.shootBtn.getBounds().contains(p.x, p.y))) {
-        this.dragLast = { x: p.x, y: p.y };
-        this.dragMoved = false;
-      }
+      if (p.y <= this.fieldTop || p.y >= this.fieldBottom + 40) return;
+      if (this.shootBtn && this.shootBtn.getBounds().contains(p.x, p.y)) return;
+      if (p.x > W - 140) return; // the power bar
+      if (!this.humanShooting() || (this.phase !== 'choose' && this.phase !== 'ready')) return;
+      this.flick = { x0: p.x, y0: p.y, x: p.x, y: p.y, id: p.id };
     });
     this.input.on('pointermove', (p: Phaser.Input.Pointer) => {
-      if (!this.dragLast || !p.isDown || !this.humanShooting() || (this.phase !== 'choose' && this.phase !== 'ready' && this.phase !== 'meter')) return;
-      const r = this.reticleCenter();
-      this.aim.x = Phaser.Math.Clamp(this.aim.x + (p.x - this.dragLast.x) / r.rx * 0.9, -1, 1);
-      this.aim.y = Phaser.Math.Clamp(this.aim.y + (p.y - this.dragLast.y) / r.ry * 0.9, -1, 1);
-      this.dragLast = { x: p.x, y: p.y };
-      this.dragMoved = true;
+      if (!this.flick || this.flick.id !== p.id || !p.isDown) return;
+      this.flick.x = p.x; this.flick.y = p.y;
+      const f = flickToShot(p.x - this.flick.x0, p.y - this.flick.y0, W, H);
+      if (f.pull >= FLICK.minPull) {
+        this.aim.x = f.aimX;
+        this.power = f.powerFactor;
+        if (this.phase === 'choose') { this.lockSpot(); }
+        this.shooter.setPose('back-shoot1');
+        this.placeHeldBall();
+      }
     });
-    const end = () => { this.dragLast = null; };
-    this.input.on('pointerup', end);
-    this.input.on('pointerupoutside', end);
+    const endFlick = (p: Phaser.Input.Pointer) => {
+      const fl = this.flick;
+      if (!fl || fl.id !== p.id) return;
+      this.flick = null;
+      const f = flickToShot(p.x - fl.x0, p.y - fl.y0, W, H);
+      if (f.pull < FLICK.minPull || !this.humanShooting() || (this.phase !== 'choose' && this.phase !== 'ready')) {
+        if (this.phase === 'ready' && !this.meterHeld) { this.shooter.setPose('back-shoot0'); this.placeHeldBall(); }
+        return;
+      }
+      if (this.phase === 'choose') this.lockSpot();
+      Audio.unlock();
+      this.fire(f.powerFactor, f.aimX, true);
+    };
+    this.input.on('pointerup', endFlick);
+    this.input.on('pointerupoutside', endFlick);
+  }
+
+  /** The setter commits to the current spot. */
+  private lockSpot(): void {
+    if (this.phase !== 'choose') return;
+    this.state = chooseSpot(this.state, this.spotIndex);
+    this.phase = 'ready';
+    this.spotZones.forEach((z) => z.disableInteractive());
+    this.refreshHud();
   }
 
   // ---------- Turn flow ----------
@@ -611,8 +645,13 @@ export class HorseScene extends BaseGameScene {
     this.setTurn(s.shooter);
     this.refreshHud();
     this.aim = { x: 0, y: 0 };
+    this.power = 0;
+    this.flick = null;
+    this.aiTarget = null;
+    this.meterHeld = false;
     this.shot = null;
-    this.timingMeter.set(0, 0);
+    this.powerBar.set(0);
+    this.powerLabel.setText('');
     this.timingLabel.setText('');
     this.powerText.setText('');
     const shooterChar = this.players[s.shooter].character;
@@ -624,11 +663,11 @@ export class HorseScene extends BaseGameScene {
     if (s.phase === 'match') {
       this.spotIndex = s.spot ?? 0;
       this.phase = 'ready';
-      this.setStatus(`${this.name(s.shooter)} must match it from ${SPOTS[this.spotIndex].name}!`);
+      this.setStatus(`${this.name(s.shooter)} must match it from ${SPOTS[this.spotIndex].name}! ${this.isAI(s.shooter) ? '' : this.useTouch ? 'Flick up to shoot.' : 'Flick up or hold SHOOT.'}`);
     } else {
       this.phase = 'choose';
       if (s.spot !== null) this.spotIndex = s.spot;
-      this.setStatus(this.isAI(s.shooter) ? `${this.name(s.shooter)} is picking a spot...` : `${this.name(s.shooter)} sets a shot. Pick a spot, then hold SHOOT!`);
+      this.setStatus(this.isAI(s.shooter) ? `${this.name(s.shooter)} is picking a spot...` : `${this.name(s.shooter)} sets a shot. Pick a spot, then ${this.useTouch ? 'flick up to shoot' : 'flick up or hold SHOOT'}!`);
     }
     this.setProjector(SPOTS[this.spotIndex]);
     this.layoutCourt();
@@ -655,11 +694,14 @@ export class HorseScene extends BaseGameScene {
       const params = aiShot(this.ai, SPOTS[this.spotIndex]);
       this.time.delayedCall(HORSE_VISUAL.aiShootMs, () => {
         if (this.finished) return;
-        // Animate the aim toward the AI's (noisy) target, then run the meter and release at its timing error.
+        // The CPU winds up: the bar charges toward its (noisy) power, then it lets go.
         this.aim.x = Phaser.Math.Clamp(params.aimX, -1, 1);
-        this.aim.y = Phaser.Math.Clamp(params.aimY, -1, 1);
-        this.aiRelease = this.cfg.perfectAt * this.cfg.meterMs + params.offsetMs;
-        this.pressShoot(true);
+        this.aim.y = 0;
+        this.aiTarget = { power: powerFromOffset(params.offsetMs, this.cfg), aimX: this.aim.x };
+        this.aiChargeT = 0;
+        this.phase = 'meter';
+        this.shooter.setPose('back-shoot1');
+        this.placeHeldBall();
       });
     });
   }
@@ -685,50 +727,54 @@ export class HorseScene extends BaseGameScene {
     this.refreshHud();
   }
 
-  private pressShoot(ai = false): void {
-    if (!ai && !this.humanShooting()) return;
+  /** Keyboard / SHOOT button: hold to charge the power bar, release to shoot. */
+  private pressShoot(): void {
+    if (!this.humanShooting()) return;
     if (this.phase !== 'choose' && this.phase !== 'ready') return;
-    if (this.phase === 'choose') {
-      this.state = chooseSpot(this.state, this.spotIndex);
-      this.refreshHud();
-    }
+    if (this.phase === 'choose') this.lockSpot();
     this.phase = 'meter';
     this.meterHeld = true;
-    this.meterStart = this.time.now;
+    this.power = 0;
     this.timingLabel.setText('');
-    this.spotZones.forEach((z) => z.disableInteractive());
     this.shooter.setPose('back-shoot1');
     this.placeHeldBall();
   }
 
-  private releaseShoot(ai = false): void {
+  private releaseShoot(): void {
     if (this.phase !== 'meter' || !this.meterHeld) return;
-    if (!ai && !this.humanShooting()) return;
+    if (!this.humanShooting()) return;
     this.meterHeld = false;
-    const elapsed = this.time.now - this.meterStart;
-    const offsetMs = elapsed - this.cfg.perfectAt * this.cfg.meterMs;
-    this.fire(offsetMs);
+    this.fire(this.power, this.aim.x, true);
   }
 
-  private fire(offsetMs: number): void {
+  /** Let it fly. `noisy` adds the distance-based wobble every real shot has (the CPU's error is already in its target). */
+  private fire(powerFactor: number, aimX: number, noisy: boolean): void {
     const spot = SPOTS[this.spotIndex];
-    const result = simulateShot(spot, offsetMs, this.aim.x, this.aim.y, this.cfg);
+    let pf = powerFactor, ax = aimX;
+    if (noisy) {
+      const n = shotNoise(spot);
+      pf *= 1 + gaussian(n.powerSd);
+      ax += gaussian(n.aimSd);
+    }
+    this.power = pf;
+    const result = simulateShotPower(spot, pf, ax, this.aim.y, this.cfg);
     this.shot = result;
     this.flightT = 0;
     this.flightStart = this.time.now;
     this.eventIdx = 0;
     this.phase = 'flight';
-    this.aiRelease = null;
+    this.flick = null;
+    this.aiTarget = null;
     this.preview.clear();
+    this.lastPreviewKey = '';
     this.shooter.setPose('back-shoot1');
     this.ballShadow.setVisible(true);
     Audio.sfx('throw');
-    const label = result.timing.toUpperCase();
+    const label = result.timing === 'early' ? 'SHORT' : result.timing === 'late' ? 'LONG' : 'PERFECT';
     const col = result.timing === 'perfect' ? '#f5c518' : '#8bc34a';
     this.timingLabel.setText(label).setColor(col);
-    this.powerText.setText(`Power ${Math.round(result.powerFactor * 100)}%`);
-    const pos = (offsetMs + this.cfg.perfectAt * this.cfg.meterMs) / this.cfg.meterMs;
-    this.timingMeter.set(0, Phaser.Math.Clamp(pos, 0, 1));
+    this.powerBar.set(Phaser.Math.Clamp(pf / (FLICK.maxPull / FLICK.sweetPull), 0, 1));
+    this.powerLabel.setText(`${Math.round(pf * 100)}%`);
   }
 
   private resolveShot(): void {
@@ -815,20 +861,25 @@ export class HorseScene extends BaseGameScene {
     const rc = this.reticleCenter();
     this.reticle.setPosition(rc.x + this.aim.x * rc.rx, rc.y + this.aim.y * rc.ry);
     this.reticle.setVisible(this.phase === 'choose' || this.phase === 'ready' || this.phase === 'meter');
-    this.drawPreview();
+    const maxP = FLICK.maxPull / FLICK.sweetPull;
     if (this.phase === 'meter') {
-      const elapsed = this.time.now - this.meterStart;
-      const pos = elapsed / this.cfg.meterMs;
-      this.timingMeter.set(0, Phaser.Math.Clamp(pos, 0, 1));
-      if (this.aiRelease !== null) {
-        if (elapsed >= this.aiRelease) { this.meterHeld = false; this.fire(this.aiRelease - this.cfg.perfectAt * this.cfg.meterMs); }
-      } else if (elapsed >= this.cfg.meterMs) {
-        // held too long: auto-release at the very end
-        this.meterHeld = false;
-        this.fire(this.cfg.meterMs - this.cfg.perfectAt * this.cfg.meterMs);
+      if (this.aiTarget) {
+        // CPU wind-up: the bar climbs to its chosen power, then the shot goes
+        this.aiChargeT += dt;
+        const u = Math.min(1, this.aiChargeT / 0.7);
+        this.power = this.aiTarget.power * u;
+        if (u >= 1) { this.fire(this.aiTarget.power, this.aiTarget.aimX, false); return; }
+      } else if (this.meterHeld) {
+        this.power = Math.min(maxP, this.power + (maxP / HORSE_VISUAL.chargeSeconds) * dt);
+        if (this.power >= maxP) { this.meterHeld = false; this.fire(this.power, this.aim.x, true); return; }
       }
-      return;
     }
+    const charging = this.phase === 'meter' || (this.flick !== null && this.power > 0);
+    if (charging) {
+      this.powerBar.set(Phaser.Math.Clamp(this.power / maxP, 0, 1));
+      this.powerLabel.setText(this.power < 1 - (this.cfg.goodMs / 100) * this.cfg.powerPer100Ms ? 'short' : this.power > 1 + (this.cfg.goodMs / 100) * this.cfg.powerPer100Ms ? 'long' : 'good');
+    }
+    this.drawPreview();
     if (this.phase === 'flight' && this.shot) {
       this.flightT = (this.time.now - this.flightStart) / 1000;
       const pts = this.shot.points;
@@ -872,22 +923,34 @@ export class HorseScene extends BaseGameScene {
   }
 
   private drawPreview(): void {
+    const live = this.flick !== null || (this.phase === 'meter' && this.meterHeld);
     const show = this.humanShooting() && (this.phase === 'choose' || this.phase === 'ready' || this.phase === 'meter');
     if (!show) { if (this.lastPreviewKey !== '') { this.preview.clear(); this.lastPreviewKey = ''; } return; }
-    const key = `${this.spotIndex}:${this.aim.x.toFixed(2)}:${this.aim.y.toFixed(2)}`;
+    const pf = live ? this.power : 1;
+    const key = `${this.spotIndex}:${this.aim.x.toFixed(2)}:${pf.toFixed(2)}:${live ? 1 : 0}`;
     if (key === this.lastPreviewKey) return;
     this.lastPreviewKey = key;
-    const r = simulateShot(SPOTS[this.spotIndex], 0, this.aim.x, this.aim.y, this.cfg, 1 / 40);
     this.preview.clear();
-    this.preview.lineStyle(3, r.made ? 0x4ff0ff : 0xffffff, 0.45);
-    let on = true;
+    if (live && pf < 0.3) return;
+    const r = simulateShotPower(SPOTS[this.spotIndex], pf, this.aim.x, this.aim.y, this.cfg, 1 / 40);
+    // the preview only reveals the launch (not whether it drops): a faint ideal arc before you pull, a bright live one while you do
     const end = r.events.find((e) => e.kind === 'swish' || e.kind === 'ground' || e.kind === 'rim' || e.kind === 'backboard');
+    const endT = end ? end.t : r.points[r.points.length - 1].t;
+    const cut = endT * (live ? HORSE_VISUAL.previewFraction : 0.5);
+    this.preview.lineStyle(live ? 4 : 3, live ? 0x4ff0ff : 0xffffff, live ? 0.8 : 0.3);
+    let on = true;
     for (let i = 1; i < r.points.length; i++) {
-      if (end && r.points[i].t > end.t) break;
+      if (r.points[i].t > cut) break;
       const a = this.proj.project(r.points[i - 1].x, r.points[i - 1].y, r.points[i - 1].z);
       const b = this.proj.project(r.points[i].x, r.points[i].y, r.points[i].z);
       if (a.visible && b.visible && on) this.preview.lineBetween(a.sx, a.sy, b.sx, b.sy);
       on = !on;
+    }
+    // ball ghost at the end of the shown arc
+    const last = r.points.filter((pt) => pt.t <= cut).pop();
+    if (last && live) {
+      const p = this.proj.project(last.x, last.y, last.z);
+      if (p.visible) { this.preview.lineStyle(2, 0x4ff0ff, 0.9); this.preview.strokeCircle(p.sx, p.sy, Math.max(6, HORSE_VISUAL.ballDiameter * p.scale * 0.5)); }
     }
   }
 }
