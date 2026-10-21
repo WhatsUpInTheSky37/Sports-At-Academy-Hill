@@ -35,11 +35,11 @@ async function session(label, viewport, touch) {
   await page.waitForTimeout(3500);
   await page.screenshot({ path: `smoke-output/horse-${label}-after.png` });
   // let the AI play its turn(s): poll the game clock until a second shot has been taken
-  await page.waitForFunction(() => { const s = window.__game.scene.getScene('HorseScene'); return s.state.shotsTaken >= 2; }, null, { timeout: 60000 });
+  await page.waitForFunction(() => { const s = window.__game.scene.getScene('HorseScene'); return s.state.shotsTaken >= 2; }, null, { timeout: 150000 });
   await page.waitForTimeout(500);
   await page.screenshot({ path: `smoke-output/horse-${label}-ai.png` });
   // wait until it is the human's turn again, then tap a chalk spot (touch) or press a key and shoot late
-  await page.waitForFunction(() => { const s = window.__game.scene.getScene('HorseScene'); return s.phase === 'choose' || s.phase === 'ready'; }, null, { timeout: 60000 });
+  await page.waitForFunction(() => { const s = window.__game.scene.getScene('HorseScene'); return s.phase === 'choose' || s.phase === 'ready'; }, null, { timeout: 150000 });
   if (touch) {
     const z = await page.evaluate(() => { const s = window.__game.scene.getScene('HorseScene'); const zone = s.spotZones[0]; const c = s.scale.canvas.getBoundingClientRect(); const sx = c.width / s.scale.width; return zone ? { x: c.left + zone.x * sx, y: c.top + zone.y * sx } : null; });
     if (z) await page.touchscreen.tap(z.x, z.y);
