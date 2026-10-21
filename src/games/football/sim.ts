@@ -42,10 +42,16 @@ export interface PassFlight {
   t: number;
 }
 
-export function makePass(from: Vec, to: Vec, cfg: FootballConfig = FOOTBALL_CONFIG): PassFlight {
+/**
+ * Build a pass to a spot. `power` (0..1) is how hard it is thrown: a hard throw flies faster and flatter
+ * (less time for a defender to close), a soft one lobs higher and gives the receiver time to get under it.
+ */
+export function makePass(from: Vec, to: Vec, cfg: FootballConfig = FOOTBALL_CONFIG, power = 0.6): PassFlight {
   const dist = Math.hypot(to.x - from.x, to.y - from.y);
-  const duration = Math.max(0.35, dist / cfg.passSpeed);
-  return { from: { ...from }, to: { ...to }, duration, height: 1.2 + dist * 0.16, t: 0 };
+  const p = Math.max(0, Math.min(1, power));
+  const speed = cfg.passSpeed * (0.55 + 0.7 * p);
+  const duration = Math.max(0.3, dist / speed);
+  return { from: { ...from }, to: { ...to }, duration, height: 0.9 + dist * 0.15 * (1.25 - 0.7 * p), t: 0 };
 }
 
 /** Position of a pass in flight at its current t (0..duration). */

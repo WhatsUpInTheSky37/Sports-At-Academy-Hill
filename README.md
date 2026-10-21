@@ -59,7 +59,7 @@ The smoke and playthrough scripts open `?renderer=canvas`, a URL switch that for
 | Billiards | Drag to aim, A/D fine aim, SPACE shoot | same, turns alternate | Drag to aim, drag/hold power bar |
 | Wrestling | WASD move, F grapple/pin, G shove/takedown, H escape | Arrows, `,` grapple/pin, `.` shove, `/` escape | Stick + GRAB / SHOVE / ESC |
 | Hockey | WASD skate, click the net to shoot (F / SPACE: open corner) | Arrows skate, `,` or ENTER shoot (turns alternate) | Left stick to skate, tap the net where you want the puck |
-| Football | WASD move, F snap/pass, G switch player | Arrows, `,` snap/pass, `.` switch | Stick + SNAP/PASS / SWITCH |
+| Football | WASD move, F hike / hold F to throw to the receiver, G switch; or press-hold / swipe on the field to throw there | Arrows, `,` hike / hold to throw, `.` switch | Tap the field to hike; press-hold (longer = harder) or swipe (faster = harder) where the ball should land; stick to run; tap to switch on defense |
 | Darts | Mouse/WASD aim, SPACE/F throw | same, turns alternate | Drag to aim, tap THROW |
 
 ### Rules and simplifications
@@ -69,7 +69,7 @@ The smoke and playthrough scripts open `?renderer=canvas`, a URL switch that for
 - **Billiards:** casual eight-ball (open table after the break, groups on the first legal pocketed ball, fouls give ball in hand anywhere, called pocket for the 8, 8 on the break is respotted, illegal break lets the opponent accept or rerack). No jump/masse shots, no three-foul rule.
 - **Wrestling:** cartoon grappling in a couch-cushion ring. Three-count pins with a timed escape window (no mashing). Stepping out resets both wrestlers.
 - **Hockey:** a shootout. Five attempts each, alternating; the shooter skates in from the top of the driveway with an 8-second shot clock and taps the net where the puck should go. Aim error grows with distance and skating speed; the goalie slides to cut the angle, reacts to the shot (faster on harder difficulty) and can poke the puck away inside the crease. Regulation ends early when the trailing player cannot catch up; ties go to sudden death. The view zooms toward the net as the shooter closes in.
-- **Football:** 2v2 touch, 40-yard field plus end zones, 4 downs and no first downs, TD 6, no extra points, safety 2, one forward pass per play from behind the line, interceptions returnable, first to 30. No fumbles, blocking, kicking or penalties. Field size, winning score, touch distance and speeds are in `src/games/football/rules.ts`.
+- **Football:** 2v2 touch, 40-yard field plus end zones, 4 downs and no first downs, TD 6, no extra points, safety 2, one forward pass per play from behind the line, interceptions returnable, first to 30. Backyard rush rule: the rusher counts Mississippis (2.5 s, slower on easier CPUs) before crossing the line. Passes are thrown to a spot: throw power sets speed and arc (hard = fast and flat, soft = a lob the receiver can run under). No fumbles, blocking, kicking or penalties. Field size, winning score, touch distance and speeds are in `src/games/football/rules.ts`.
 - **Darts:** 301 straight-in, double-out (inner bull counts). Bust restores the start-of-turn score. Score comes from the actual impact coordinates on a standard board.
 
 Tuning values for each game are exported constants at the top of that game's module (`DEFAULT_BATTING` and `DERBY_VISUAL` for derby, and the equivalent config objects in `horse/`, `pool/`, `wrestling/`, `hockey/`, `football/`, `darts/`).

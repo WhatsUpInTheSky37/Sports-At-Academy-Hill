@@ -137,9 +137,13 @@ describe('football sim helpers', () => {
     expect(m.y).toBeCloseTo(4);
   });
 
-  it('flies a pass from thrower to target and lands low', () => {
+  it('flies a pass from thrower to target and lands low; harder throws are faster and flatter', () => {
+    const soft = makePass({ x: 0, y: 0 }, { x: 0, y: 24 }, cfg, 0);
+    const hard = makePass({ x: 0, y: 0 }, { x: 0, y: 24 }, cfg, 1);
+    expect(hard.duration).toBeLessThan(soft.duration);
+    expect(hard.height).toBeLessThan(soft.height);
+    expect(hard.duration).toBeCloseTo(24 / (cfg.passSpeed * 1.25));
     const p = makePass({ x: 0, y: 0 }, { x: 0, y: 24 });
-    expect(p.duration).toBeCloseTo(1);
     p.t = 0;
     const a = passPosition(p);
     p.t = p.duration / 2;
