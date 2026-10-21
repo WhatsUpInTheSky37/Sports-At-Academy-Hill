@@ -35,6 +35,10 @@ async function run(viewport, label, hasTouch) {
   if (st.scales.some((x) => x > 1.2)) { console.log('SPRITES TOO BIG'); failed = true; }
   if (!(st.faces[2].startsWith('idle') && st.faces[3].startsWith('idle'))) { console.log('DEFENDERS NOT FACING THE OFFENCE'); failed = true; }
   await page.screenshot({ path: `smoke-output/football-${label}-presnap.png` });
+  // park two cars on the street for the screenshot
+  await page.evaluate(() => { const s = window.__game.scene.getScene('FootballScene'); const R = { lanes: [15.9, 19.5] }; s.cars.push({ y: s.state.lineOfScrimmage + 5, dir: 1, lane: R.lanes[0], speed: 0, color: 0xd32f2f, dark: 0x8e1c1c }); s.cars.push({ y: s.state.lineOfScrimmage + 18, dir: -1, lane: R.lanes[1], speed: 0, color: 0x1e63c9, dark: 0x123f82 }); });
+  await step(2);
+  await page.screenshot({ path: `smoke-output/football-${label}-road.png` });
   // tap the field to hike
   const W = viewport.width, H = viewport.height;
   const fieldPt = { x: W * 0.55, y: H * 0.5 };
