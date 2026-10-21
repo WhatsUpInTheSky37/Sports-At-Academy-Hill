@@ -373,3 +373,294 @@ export function paintSky(ctx: CanvasRenderingContext2D, w: number, h: number, ho
 }
 
 export { createCanvas, roundRect, shade, rng };
+
+// ---------------------------------------------------------------------------------------------
+// Higher-fidelity painters (perspective-aware). These take a Projector so density, blade size and
+// shading follow the camera, which is what makes a procedural yard read as a real place.
+// ---------------------------------------------------------------------------------------------
+import type { Projector } from '../core/projection';
+
+/** Late-afternoon sky: deep blue overhead, warm haze at the horizon, soft sun, layered clouds. */
+export function paintSkyHD(ctx: CanvasRenderingContext2D, w: number, h: number, horizonY: number, opts: { sunX?: number; sunY?: number; seed?: number } = {}): void {
+  const g = ctx.createLinearGradient(0, 0, 0, horizonY);
+  g.addColorStop(0, '#2f78c9');
+  g.addColorStop(0.45, '#6fb0ea');
+  g.addColorStop(0.8, '#b7dcf5');
+  g.addColorStop(1, '#f4e6c3');
+  ctx.fillStyle = g;
+  ctx.fillRect(0, 0, w, horizonY + 2);
+  const sx = opts.sunX ?? w * 0.74;
+  const sy = opts.sunY ?? horizonY * 0.3;
+  const glow = ctx.createRadialGradient(sx, sy, 6, sx, sy, Math.max(w, h) * 0.45);
+  glow.addColorStop(0, 'rgba(255,252,230,1)');
+  glow.addColorStop(0.03, 'rgba(255,248,200,0.95)');
+  glow.addColorStop(0.12, 'rgba(255,235,170,0.35)');
+  glow.addColorStop(0.5, 'rgba(255,220,150,0.08)');
+  glow.addColorStop(1, 'rgba(255,220,150,0)');
+  ctx.fillStyle = glow;
+  ctx.fillRect(0, 0, w, horizonY + 2);
+  // clouds: stacks of soft radial puffs, lit from the sun side
+  const r = rng(opts.seed ?? 21);
+  for (let i = 0; i < 7; i++) {
+    const cx = r() * w;
+    const cy = horizonY * (0.1 + r() * 0.45);
+    const scale = 0.6 + r() * 0.9;
+    const puffs = 6 + Math.floor(r() * 5);
+    for (let k = 0; k < puffs; k++) {
+      const px = cx + (k - puffs / 2) * 42 * scale + (r() - 0.5) * 30;
+      const py = cy + (r() - 0.5) * 22 * scale + Math.abs(k - puffs / 2) * 6;
+      const pr = (34 + r() * 22) * scale;
+      const cg = ctx.createRadialGradient(px - pr * 0.3, py - pr * 0.35, pr * 0.1, px, py, pr);
+      cg.addColorStop(0, 'rgba(255,255,255,0.95)');
+      cg.addColorStop(0.55, 'rgba(250,250,255,0.75)');
+      cg.addColorStop(0.85, 'rgba(225,232,245,0.35)');
+      cg.addColorStop(1, 'rgba(225,232,245,0)');
+      ctx.fillStyle = cg;
+      ctx.beginPath(); ctx.arc(px, py, pr, 0, Math.PI * 2); ctx.fill();
+    }
+  }
+  // thin high wisps
+  ctx.strokeStyle = 'rgba(255,255,255,0.25)';
+  ctx.lineCap = 'round';
+  for (let i = 0; i < 6; i++) {
+    const y = horizonY * (0.08 + r() * 0.3);
+    ctx.lineWidth = 6 + r() * 10;
+    ctx.beginPath();
+    ctx.moveTo(r() * w, y);
+    ctx.bezierCurveTo(r() * w, y - 20, r() * w, y + 20, r() * w, y);
+    ctx.stroke();
+  }
+}
+
+/**
+ * Perspective lawn: fills the ground polygon (world rectangle) with a depth-shaded base, mowing
+ * stripes, perspective-sized grass tufts, clover patches and sun dapples.
+ */
+export function paintLawnHD(ctx: CanvasRenderingContext2D, pr: Projector, area: { x0: number; x1: number; z0: number; z1: number }, opts: { seed?: number; base?: string; stripes?: boolean; stripeWidth?: number; tuftDensity?: number } = {}): void {
+  const r = rng(opts.seed ?? 4);
+  const base = opts.base ?? '#5e9c3c';
+  // never let the near edge go behind the camera (the projection collapses there)
+  area = { ...area, z0: Math.max(area.z0, -pr.cam.camZ + 0.25) };
+  const a = pr.project(area.x0, 0, area.z0), b = pr.project(area.x1, 0, area.z0), c = pr.project(area.x1, 0, area.z1), d = pr.project(area.x0, 0, area.z1);
+  ctx.save();
+  ctx.beginPath(); ctx.moveTo(a.sx, a.sy); ctx.lineTo(b.sx, b.sy); ctx.lineTo(c.sx, c.sy); ctx.lineTo(d.sx, d.sy); ctx.closePath(); ctx.clip();
+  const top = Math.min(c.sy, d.sy), bottom = Math.max(a.sy, b.sy);
+  const g = ctx.createLinearGradient(0, top, 0, bottom);
+  g.addColorStop(0, shade(base, -0.12));
+  g.addColorStop(0.35, shade(base, 0.02));
+  g.addColorStop(1, shade(base, 0.16));
+  ctx.fillStyle = g;
+  ctx.fillRect(0, top - 2, ctx.canvas.width, bottom - top + 4);
+  // mowing stripes (alternate bands along x)
+  if (opts.stripes !== false) {
+    const sw = opts.stripeWidth ?? 3.2;
+    for (let x = area.x0; x < area.x1; x += sw * 2) {
+      const p0 = pr.project(x, 0, area.z0), p1 = pr.project(x + sw, 0, area.z0), p2 = pr.project(x + sw, 0, area.z1), p3 = pr.project(x, 0, area.z1);
+      ctx.fillStyle = 'rgba(235,255,210,0.11)';
+      ctx.beginPath(); ctx.moveTo(p0.sx, p0.sy); ctx.lineTo(p1.sx, p1.sy); ctx.lineTo(p2.sx, p2.sy); ctx.lineTo(p3.sx, p3.sy); ctx.closePath(); ctx.fill();
+    }
+  }
+  // clover / worn patches
+  for (let i = 0; i < 18; i++) {
+    const wx = area.x0 + r() * (area.x1 - area.x0), wz = area.z0 + r() * (area.z1 - area.z0);
+    const p = pr.project(wx, 0, wz);
+    if (!p.visible) continue;
+    const rad = (1.2 + r() * 2.5) * p.scale;
+    const pg = ctx.createRadialGradient(p.sx, p.sy, 0, p.sx, p.sy, rad);
+    const dark = r() > 0.45;
+    pg.addColorStop(0, dark ? 'rgba(20,70,20,0.12)' : 'rgba(210,230,130,0.16)');
+    pg.addColorStop(1, 'rgba(0,0,0,0)');
+    ctx.fillStyle = pg;
+    ctx.beginPath(); ctx.ellipse(p.sx, p.sy, rad, rad * 0.4, 0, 0, Math.PI * 2); ctx.fill();
+  }
+  // grass tufts: perspective-sized, denser far away
+  const density = opts.tuftDensity ?? 1;
+  const areaM2 = (area.x1 - area.x0) * (area.z1 - area.z0);
+  const n = Math.min(5000, Math.floor(areaM2 * 0.9 * density));
+  for (let i = 0; i < n; i++) {
+    // bias samples toward the camera so the near field is not sparse
+    const t = Math.pow(r(), 1.6);
+    const wz = area.z0 + t * (area.z1 - area.z0);
+    const wx = area.x0 + r() * (area.x1 - area.x0);
+    const p = pr.project(wx, 0, wz);
+    if (!p.visible || p.scale < 4) continue;
+    const bl = Math.min(22, (0.1 + r() * 0.12) * p.scale);
+    if (bl < 1.5) continue;
+    const light = r();
+    ctx.strokeStyle = light > 0.6 ? 'rgba(200,240,130,0.45)' : light > 0.3 ? 'rgba(90,160,60,0.4)' : 'rgba(40,95,35,0.35)';
+    ctx.lineWidth = Math.min(2, Math.max(1, bl * 0.08));
+    ctx.lineCap = 'round';
+    const blades = bl > 8 ? 3 : 1;
+    for (let k = 0; k < blades; k++) {
+      const ox = (k - 1) * bl * 0.3;
+      ctx.beginPath();
+      ctx.moveTo(p.sx + ox, p.sy);
+      ctx.quadraticCurveTo(p.sx + ox + (r() - 0.5) * bl * 0.3, p.sy - bl * 0.6, p.sx + ox + (r() - 0.5) * bl * 0.5, p.sy - bl);
+      ctx.stroke();
+    }
+  }
+  // sun dapples: a few large, very soft pools of light
+  for (let i = 0; i < 6; i++) {
+    const wx = area.x0 + r() * (area.x1 - area.x0), wz = area.z0 + r() * (area.z1 - area.z0);
+    const p = pr.project(wx, 0, wz);
+    if (!p.visible) continue;
+    const rad = (6 + r() * 8) * p.scale;
+    const pg = ctx.createRadialGradient(p.sx, p.sy, 0, p.sx, p.sy, rad);
+    pg.addColorStop(0, 'rgba(255,245,180,0.12)');
+    pg.addColorStop(1, 'rgba(255,245,180,0)');
+    ctx.fillStyle = pg;
+    ctx.beginPath(); ctx.ellipse(p.sx, p.sy, rad, rad * 0.35, 0, 0, Math.PI * 2); ctx.fill();
+  }
+  ctx.restore();
+}
+
+/** Columnar evergreen (Leyland-cypress style) seen from the side, lit from the upper left. */
+export function paintCypress(ctx: CanvasRenderingContext2D, x: number, y: number, h: number, seed = 8, opts: { haze?: number } = {}): void {
+  const r = rng(seed);
+  const w = h * (0.42 + r() * 0.12);
+  const haze = opts.haze ?? 0;
+  // shadow on the ground
+  ctx.fillStyle = `rgba(0,0,0,${0.28 * (1 - haze)})`;
+  ctx.beginPath(); ctx.ellipse(x + w * 0.25, y + 2, w * 0.7, h * 0.05, 0, 0, Math.PI * 2); ctx.fill();
+  // trunk
+  ctx.fillStyle = '#3f2a16';
+  ctx.fillRect(x - w * 0.05, y - h * 0.08, w * 0.1, h * 0.09);
+  const blobs = 9;
+  for (let i = 0; i < blobs; i++) {
+    const t = i / (blobs - 1);                 // 0 bottom .. 1 top
+    const cy = y - h * (0.06 + t * 0.86);
+    const bw = w * (t < 0.15 ? 0.75 + t * 1.5 : 1 - Math.pow(t, 1.8) * 0.85);
+    const bh = h * 0.14;
+    const g = ctx.createRadialGradient(x - bw * 0.35, cy - bh * 0.3, bw * 0.05, x, cy, bw * 1.1);
+    const lit = mix('#9ad662', '#dfe9f2', haze), mid = mix('#4f9436', '#c9d6e4', haze), dark = mix('#1d4a1c', '#aebccb', haze);
+    g.addColorStop(0, lit);
+    g.addColorStop(0.45, mid);
+    g.addColorStop(1, dark);
+    ctx.fillStyle = g;
+    ctx.beginPath();
+    // fringed ellipse
+    const segs = 14;
+    for (let k = 0; k <= segs; k++) {
+      const a = (k / segs) * Math.PI * 2;
+      const fr = 1 + (k % 2 === 0 ? 0.06 : -0.06) + (r() - 0.5) * 0.08;
+      const px = x + Math.cos(a) * bw * fr + (r() - 0.5) * bw * 0.1;
+      const py = cy + Math.sin(a) * bh * fr;
+      if (k === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
+    }
+    ctx.closePath();
+    ctx.fill();
+  }
+  // tip
+  ctx.fillStyle = mix('#7fc453', '#dfe9f2', haze);
+  ctx.beginPath(); ctx.moveTo(x - w * 0.12, y - h * 0.9); ctx.lineTo(x, y - h * 1.02); ctx.lineTo(x + w * 0.12, y - h * 0.9); ctx.closePath(); ctx.fill();
+  // foliage texture strokes
+  if (haze < 0.6 && h > 24) {
+    ctx.strokeStyle = `rgba(20,60,20,${0.35 * (1 - haze)})`;
+    ctx.lineWidth = Math.max(1, h * 0.012);
+    for (let i = 0; i < 18; i++) {
+      const t = r();
+      const cy = y - h * (0.1 + t * 0.8);
+      const bw = w * (1 - Math.pow(t, 1.8) * 0.85);
+      const px = x + (r() - 0.5) * bw * 1.4;
+      ctx.beginPath(); ctx.moveTo(px, cy); ctx.lineTo(px + (r() - 0.5) * bw * 0.3, cy + h * 0.05); ctx.stroke();
+    }
+    ctx.strokeStyle = `rgba(200,240,150,${0.3 * (1 - haze)})`;
+    for (let i = 0; i < 10; i++) {
+      const t = r();
+      const cy = y - h * (0.1 + t * 0.8);
+      const bw = w * (1 - Math.pow(t, 1.8) * 0.85);
+      const px = x - bw * (0.2 + r() * 0.5);
+      ctx.beginPath(); ctx.moveTo(px, cy); ctx.lineTo(px + bw * 0.1, cy - h * 0.03); ctx.stroke();
+    }
+  }
+}
+
+/** Tiered pine with lit/shadow sides and fringed branch edges. */
+export function paintPineHD(ctx: CanvasRenderingContext2D, x: number, y: number, h: number, seed = 8, opts: { haze?: number } = {}): void {
+  const r = rng(seed);
+  const w = h * 0.6;
+  const haze = opts.haze ?? 0;
+  ctx.fillStyle = `rgba(0,0,0,${0.26 * (1 - haze)})`;
+  ctx.beginPath(); ctx.ellipse(x + w * 0.2, y + 2, w * 0.6, h * 0.06, 0, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = mix('#4a2f18', '#b8c3cf', haze);
+  ctx.fillRect(x - w * 0.05, y - h * 0.14, w * 0.1, h * 0.15);
+  const tiers = 5;
+  for (let i = 0; i < tiers; i++) {
+    const t = i / tiers;
+    const ty = y - h * 0.1 - t * h * 0.74;
+    const tw = w * (1 - t * 0.62) * (0.95 + r() * 0.1);
+    const th = h * 0.3;
+    const g = ctx.createLinearGradient(x - tw / 2, ty, x + tw / 2, ty);
+    g.addColorStop(0, mix('#8fd05a', '#dfe9f2', haze));
+    g.addColorStop(0.45, mix('#3f8a2e', '#c9d6e4', haze));
+    g.addColorStop(1, mix('#163d16', '#aebccb', haze));
+    ctx.fillStyle = g;
+    ctx.beginPath();
+    ctx.moveTo(x, ty - th);
+    const segs = 6;
+    for (let k = 1; k <= segs; k++) {
+      const f = k / segs;
+      ctx.lineTo(x + tw / 2 * f, ty - th + th * f + (k % 2 ? th * 0.06 : -th * 0.04));
+    }
+    for (let k = segs; k >= 1; k--) {
+      const f = k / segs;
+      ctx.lineTo(x - tw / 2 * f, ty - th + th * f + (k % 2 ? th * 0.06 : -th * 0.04));
+    }
+    ctx.closePath();
+    ctx.fill();
+  }
+}
+
+/** Round deciduous tree with clustered canopy, lit from the upper left. */
+export function paintTreeHD(ctx: CanvasRenderingContext2D, x: number, y: number, size: number, seed = 5, opts: { haze?: number } = {}): void {
+  const r = rng(seed);
+  const haze = opts.haze ?? 0;
+  ctx.fillStyle = `rgba(0,0,0,${0.25 * (1 - haze)})`;
+  ctx.beginPath(); ctx.ellipse(x + size * 0.1, y + 3, size * 0.45, size * 0.1, 0, 0, Math.PI * 2); ctx.fill();
+  const tg = ctx.createLinearGradient(x - size * 0.08, 0, x + size * 0.08, 0);
+  tg.addColorStop(0, mix('#6b4a2a', '#b8c3cf', haze)); tg.addColorStop(1, mix('#3a2412', '#aebccb', haze));
+  ctx.fillStyle = tg;
+  ctx.beginPath();
+  ctx.moveTo(x - size * 0.09, y); ctx.lineTo(x - size * 0.05, y - size * 0.55); ctx.lineTo(x + size * 0.05, y - size * 0.55); ctx.lineTo(x + size * 0.09, y); ctx.closePath(); ctx.fill();
+  const cx = x, cy = y - size * 0.68;
+  for (let i = 0; i < 9; i++) {
+    const a = (i / 9) * Math.PI * 2;
+    const dist = i === 8 ? 0 : size * 0.24 * (0.8 + r() * 0.4);
+    const px = cx + Math.cos(a) * dist, py = cy + Math.sin(a) * dist * 0.75;
+    const pr = size * (0.26 + r() * 0.08);
+    const g = ctx.createRadialGradient(px - pr * 0.4, py - pr * 0.4, pr * 0.05, px, py, pr);
+    g.addColorStop(0, mix('#a8dc6c', '#dfe9f2', haze));
+    g.addColorStop(0.5, mix('#4f9a38', '#c9d6e4', haze));
+    g.addColorStop(1, mix('#1f4f1f', '#aebccb', haze));
+    ctx.fillStyle = g;
+    ctx.beginPath(); ctx.arc(px, py, pr, 0, Math.PI * 2); ctx.fill();
+  }
+}
+
+/** Atmospheric haze band just above the horizon, to push the far background back. */
+export function paintHaze(ctx: CanvasRenderingContext2D, w: number, horizonY: number, depth = 140, color = '244,236,214'): void {
+  const g = ctx.createLinearGradient(0, horizonY - depth, 0, horizonY + depth * 0.4);
+  g.addColorStop(0, `rgba(${color},0)`);
+  g.addColorStop(0.7, `rgba(${color},0.35)`);
+  g.addColorStop(1, `rgba(${color},0)`);
+  ctx.fillStyle = g;
+  ctx.fillRect(0, horizonY - depth, w, depth * 1.4);
+}
+
+/** Soft vignette and warm grade over a finished scene. */
+export function paintVignette(ctx: CanvasRenderingContext2D, w: number, h: number, strength = 0.35): void {
+  const g = ctx.createRadialGradient(w / 2, h / 2, Math.min(w, h) * 0.45, w / 2, h / 2, Math.max(w, h) * 0.75);
+  g.addColorStop(0, 'rgba(0,0,0,0)');
+  g.addColorStop(1, `rgba(10,20,10,${strength})`);
+  ctx.fillStyle = g;
+  ctx.fillRect(0, 0, w, h);
+  ctx.fillStyle = 'rgba(255,200,120,0.05)';
+  ctx.fillRect(0, 0, w, h);
+}
+
+/** Linear colour mix of two hex colours. */
+export function mix(a: string, b: string, t: number): string {
+  const pa = parseInt(a.replace('#', ''), 16), pb = parseInt(b.replace('#', ''), 16);
+  const ch = (s: number) => Math.round(((pa >> s) & 255) * (1 - t) + ((pb >> s) & 255) * t);
+  return `rgb(${ch(16)},${ch(8)},${ch(0)})`;
+}

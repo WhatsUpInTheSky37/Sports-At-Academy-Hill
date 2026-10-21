@@ -19,11 +19,13 @@ export interface BattingConfig {
    */
   fairCenterDeg: number;
   fairAngleDeg: number;
-  /** Distance (m) from the plate to the home run boundary (the tree line). */
+  /** Distance (m) from the plate to the back tree line. */
   boundaryZ: number;
-  /** Height (m) the ball must have when crossing the boundary to clear the trees. */
+  /** The side tree lines sit at x = -yardLeft and x = +yardRight (m); the hedge wraps around all three sides. */
+  yardLeft: number;
+  yardRight: number;
+  /** Height (m) the ball must have when crossing the tree line to clear it. */
   treeHeight: number;
-  /** Half-width (m) of the yard at the boundary (balls further out are foul anyway). */
   minExitSpeed: number;
   maxExitSpeed: number;
   /** Launch angle when the aim reticle is centred, and how far aim can push it either way. */
@@ -42,13 +44,15 @@ export const DEFAULT_BATTING: BattingConfig = {
   perfectMs: 55,
   goodMs: 130,
   maxContactMs: 230,
-  maxPullDeg: 34,
-  fairCenterDeg: -15,
-  fairAngleDeg: 19,
-  boundaryZ: 45,
-  treeHeight: 1.4,
-  minExitSpeed: 18,
-  maxExitSpeed: 35,
+  maxPullDeg: 40,
+  fairCenterDeg: 0,
+  fairAngleDeg: 26,
+  boundaryZ: 40,
+  yardLeft: 17,
+  yardRight: 17,
+  treeHeight: 1.7,
+  minExitSpeed: 17,
+  maxExitSpeed: 33,
   baseLaunchDeg: 27,
   launchRangeDeg: 24,
   aimLateralDeg: 12,
@@ -133,13 +137,18 @@ export function simulateFlight(contact: Contact, cfg: BattingConfig = DEFAULT_BA
   for (let i = 0; i < 2000; i++) {
     const prevZ = z;
     const prevY = y;
+    const prevX = x;
     vy -= cfg.gravity * dt;
     const d = Math.max(0, 1 - cfg.drag * dt);
     vx *= d; vz *= d; vy *= d;
     x += vx * dt; y += vy * dt; z += vz * dt; t += dt;
-    if (heightAtBoundary === null && prevZ < cfg.boundaryZ && z >= cfg.boundaryZ) {
-      const f = (cfg.boundaryZ - prevZ) / (z - prevZ);
-      heightAtBoundary = prevY + (y - prevY) * f;
+    if (heightAtBoundary === null) {
+      // first crossing of the three-sided tree line (back, left or right)
+      let f: number | null = null;
+      if (prevZ < cfg.boundaryZ && z >= cfg.boundaryZ) f = (cfg.boundaryZ - prevZ) / (z - prevZ);
+      if (prevX > -cfg.yardLeft && x <= -cfg.yardLeft) f = Math.min(f ?? 1, (prevX + cfg.yardLeft) / (prevX - x));
+      if (prevX < cfg.yardRight && x >= cfg.yardRight) f = Math.min(f ?? 1, (cfg.yardRight - prevX) / (x - prevX));
+      if (f !== null) heightAtBoundary = prevY + (y - prevY) * f;
     }
     if (y <= 0) {
       // interpolate landing
@@ -180,7 +189,7 @@ export function gaussian(sd: number): number {
 
 /** AI swing parameters per difficulty level (0 easy .. 1 hard). */
 export function aiSwing(level: number): { offsetMs: number; aimX: number; aimY: number } {
-  const timingSd = 165 - level * 95;   // 165 / 118 / 70 ms  -> roughly 20% / 40% / 70% home runs
+  const timingSd = 165 - level * 95;   // 165 / 118 / 70 ms
   const aimSd = 0.42 - level * 0.24;    // 0.42 / 0.30 / 0.18
   return { offsetMs: gaussian(timingSd), aimX: gaussian(aimSd), aimY: gaussian(aimSd) };
 }
