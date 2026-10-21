@@ -16,6 +16,9 @@ Working notes for the Sports at Academy Hill build. Updated as work lands.
 - Game 2 HORSE and Game 3 Billiards: complete with pure rules/physics modules, AI, tests, screenshots reviewed.
 - Full suite (113 tests), production build and the all-scene smoke pass are green; the championship flow runs through all seven events to the champion screen in the browser.
 
-## Remaining
-- In-browser match completions for hockey, wrestling, football, HORSE and billiards (idle playthrough scripts running).
-- Final pull request update.
+- In-browser match completions verified for all seven games (scripts/play-idle.mjs, play-derby.mjs) and the full championship flow (scripts/play-championship.mjs).
+
+## Remaining / known limitations
+- Headless verification uses the Canvas renderer and scripted input; manual play on real phones and keyboards is still the best test of feel and tuning.
+- Local two-player wrestling, hockey and football need a physical keyboard (no second set of touch controls).
+- Reference-photo fidelity is approximate: the yard scenes are painted from the two photos in reference-images/, not traced from them.
