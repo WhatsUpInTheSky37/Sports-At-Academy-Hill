@@ -166,3 +166,26 @@ export class ResultScene extends Phaser.Scene {
     }, { width: 440, height: 96, fontSize: 32, color: THEME.accent2 });
   }
 }
+
+interface ConfirmExitData { parent: string; }
+
+/** "Leave the match?" confirmation used by the X button in every game. */
+export class ConfirmExitScene extends Phaser.Scene {
+  constructor() { super('ConfirmExitScene'); }
+  create(data: ConfirmExitData): void {
+    const W = GAME_W, H = GAME_H;
+    makeDim(this, 0.7);
+    const pw = Math.min(W - 80, 820);
+    makePanel(this, W / 2, H / 2, pw, 360);
+    this.add.text(W / 2, H / 2 - 120, 'LEAVE THE MATCH?', displayStyle(48, '#f5c518')).setOrigin(0.5);
+    this.add.text(W / 2, H / 2 - 50, 'The score will not be saved.', textStyle(28, THEME.textDim)).setOrigin(0.5);
+    const stay = () => { this.scene.stop(); this.scene.resume(data.parent); };
+    makeButton(this, W / 2 - 180, H / 2 + 70, 'KEEP PLAYING', stay, { width: 320, height: 96, fontSize: 30 });
+    makeButton(this, W / 2 + 180, H / 2 + 70, 'MAIN MENU', () => {
+      this.scene.stop(data.parent);
+      this.scene.stop();
+      this.scene.start('MenuScene');
+    }, { width: 320, height: 96, fontSize: 30, color: 0xef5350, textColor: '#ffffff' });
+    this.input.keyboard?.on('keydown-ESC', stay);
+  }
+}

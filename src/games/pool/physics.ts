@@ -26,6 +26,14 @@ export interface PoolConfig {
   subStep: number;
   /** Safety cap on simulated time for a single shot (s). */
   maxShotTime: number;
+  /** Sliding (kinetic) friction deceleration while a ball skids (m/s^2); drives follow, draw and massé. */
+  slideFriction: number;
+  /** Side-spin decay per second. */
+  sideSpinDecay: number;
+  /** How much side spin turns into tangential velocity on a cushion (0..1). */
+  cushionSpinGrip: number;
+  /** Lateral skid imparted per unit of cue elevation x side offset (massé strength). */
+  masseStrength: number;
 }
 
 export const DEFAULT_POOL: PoolConfig = {
@@ -39,10 +47,26 @@ export const DEFAULT_POOL: PoolConfig = {
   cushionRestitution: 0.72,
   ballRestitution: 0.96,
   stopSpeed: 0.03,
-  maxShotSpeed: 6.5,
+  maxShotSpeed: 8.2,
   subStep: 1 / 480,
   maxShotTime: 25,
+  slideFriction: 2.2,
+  sideSpinDecay: 0.9,
+  cushionSpinGrip: 0.45,
+  masseStrength: 1.6,
 };
+
+/** Where the cue strikes the cue ball, as fractions of the ball radius, plus cue elevation. */
+export interface Spin {
+  /** -1 = far left of the ball (left english) .. 1 = far right. */
+  side: number;
+  /** -1 = bottom (draw) .. 1 = top (follow). */
+  top: number;
+  /** 0 = level cue .. 1 = fully raised (massé). */
+  elevation: number;
+}
+
+export const NO_SPIN: Spin = { side: 0, top: 0, elevation: 0 };
 
 export interface Ball {
   id: number; // 0 = cue
@@ -51,6 +75,11 @@ export interface Ball {
   vx: number;
   vz: number;
   active: boolean;
+  /** Surface velocity of the ball at the cloth from spin (m/s); equal to v when rolling. Absent = rolling. */
+  wx?: number;
+  wz?: number;
+  /** Side spin as a surface speed (m/s), positive = clockwise seen from above. */
+  wy?: number;
 }
 
 export interface Pocket { x: number; z: number; r: number; index: number; }
@@ -137,6 +166,8 @@ export function emptyEvents(): ShotEvents {
 
 export function cloneBalls(balls: Ball[]): Ball[] { return balls.map((b) => ({ ...b })); }
 
+function clamp(v: number, a: number, b: number): number { return Math.max(a, Math.min(b, v)); }
+
 /** Running simulation of one shot. Call step() until settled. */
 export class PoolSim {
   readonly balls: Ball[];
@@ -152,12 +183,27 @@ export class PoolSim {
     this.pk = pockets(cfg);
   }
 
-  /** Strike the cue ball with a given speed (m/s) and direction (radians, 0 = +x, PI/2 = +z). */
-  strike(speed: number, angle: number): void {
+  /**
+   * Strike the cue ball with a given speed (m/s), direction (radians, 0 = +x, PI/2 = +z) and
+   * strike point. A centre hit starts the ball skidding (it settles to rolling at 5/7 speed, like a
+   * real ball); a high hit adds follow, a low hit adds draw, an off-centre hit adds english, and
+   * an elevated cue with english adds the sideways skid that makes a massé shot curve.
+   */
+  strike(speed: number, angle: number, spin: Spin = NO_SPIN): void {
     const cue = this.balls.find((b) => b.id === 0);
     if (!cue || !cue.active) return;
-    cue.vx = Math.cos(angle) * speed;
-    cue.vz = Math.sin(angle) * speed;
+    const dx = Math.cos(angle), dz = Math.sin(angle);
+    const side = clamp(spin.side, -1, 1), top = clamp(spin.top, -1, 1), elev = clamp(spin.elevation, 0, 1);
+    cue.vx = dx * speed;
+    cue.vz = dz * speed;
+    // offset hit: surface speed = 2.5 * (offset / r) * v for a solid sphere
+    const along = 2.5 * top * speed;
+    // massé: the tilted cue puts the spin axis off vertical, which shows up as a sideways skid
+    const lateral = -side * elev * speed * this.cfg.masseStrength;
+    const px = dz, pz = -dx; // right-hand perpendicular of the travel direction
+    cue.wx = dx * along + px * lateral;
+    cue.wz = dz * along + pz * lateral;
+    cue.wy = side * speed * 1.2 * (1 - elev * 0.5);
     this.settled = false;
   }
 
@@ -189,17 +235,36 @@ export class PoolSim {
     const r = cfg.ballR;
     const { tableW: w, tableL: l } = cfg;
     const balls = this.balls;
-    // integrate + friction
+    // integrate + friction (skid toward rolling first, then rolling resistance)
     for (const b of balls) {
       if (!b.active) continue;
       const sp = Math.hypot(b.vx, b.vz);
-      if (sp === 0) continue;
+      if (sp === 0 && !(b.wx || b.wz)) { b.wy = 0; continue; }
       b.x += b.vx * h;
       b.z += b.vz * h;
-      let ns = sp - cfg.friction * h;
-      ns *= Math.max(0, 1 - cfg.damping * h);
-      if (ns <= cfg.stopSpeed * 0.5) { b.vx = 0; b.vz = 0; }
-      else { const k = ns / sp; b.vx *= k; b.vz *= k; }
+      const wx = b.wx ?? b.vx, wz = b.wz ?? b.vz;
+      let ux = b.vx - wx, uz = b.vz - wz;
+      const u = Math.hypot(ux, uz);
+      if (u > 1e-4) {
+        // sliding: friction pulls v toward the surface velocity and spins the ball up (or down)
+        const maxStep = cfg.slideFriction * h;
+        const take = Math.min(maxStep, u / 3.5);
+        ux /= u; uz /= u;
+        b.vx -= ux * take; b.vz -= uz * take;
+        b.wx = wx + ux * take * 2.5; b.wz = wz + uz * take * 2.5;
+        if (take >= u / 3.5 - 1e-9) { b.wx = b.vx; b.wz = b.vz; }
+      } else {
+        b.wx = b.vx; b.wz = b.vz;
+      }
+      const sp2 = Math.hypot(b.vx, b.vz);
+      if (sp2 > 0) {
+        let ns = sp2 - cfg.friction * h;
+        ns *= Math.max(0, 1 - cfg.damping * h);
+        const rolling = Math.hypot(b.vx - b.wx, b.vz - b.wz) < 1e-3;
+        if (ns <= cfg.stopSpeed * 0.5 && rolling) { b.vx = 0; b.vz = 0; b.wx = 0; b.wz = 0; }
+        else { const k = Math.max(0, ns) / sp2; b.vx *= k; b.vz *= k; if (rolling) { b.wx = b.vx; b.wz = b.vz; } }
+      }
+      if (b.wy) { b.wy *= Math.max(0, 1 - cfg.sideSpinDecay * h); if (Math.abs(b.wy) < 0.01) b.wy = 0; }
     }
     // pockets
     for (const b of balls) {
@@ -223,11 +288,16 @@ export class PoolSim {
       const inJaws = this.pk.some((p) => Math.hypot(b.x - p.x, b.z - p.z) < p.r + r * 1.1);
       if (inJaws) continue;
       let hit = false;
-      if (b.x - r < 0 && b.vx < 0) { b.x = r; b.vx = -b.vx * cfg.cushionRestitution; hit = true; }
-      if (b.x + r > w && b.vx > 0) { b.x = w - r; b.vx = -b.vx * cfg.cushionRestitution; hit = true; }
-      if (b.z - r < 0 && b.vz < 0) { b.z = r; b.vz = -b.vz * cfg.cushionRestitution; hit = true; }
-      if (b.z + r > l && b.vz > 0) { b.z = l - r; b.vz = -b.vz * cfg.cushionRestitution; hit = true; }
+      const wy = b.wy ?? 0;
+      const grip = cfg.cushionSpinGrip;
+      if (b.x - r < 0 && b.vx < 0) { b.x = r; b.vx = -b.vx * cfg.cushionRestitution; b.vz -= grip * wy; hit = true; }
+      if (b.x + r > w && b.vx > 0) { b.x = w - r; b.vx = -b.vx * cfg.cushionRestitution; b.vz += grip * wy; hit = true; }
+      if (b.z - r < 0 && b.vz < 0) { b.z = r; b.vz = -b.vz * cfg.cushionRestitution; b.vx += grip * wy; hit = true; }
+      if (b.z + r > l && b.vz > 0) { b.z = l - r; b.vz = -b.vz * cfg.cushionRestitution; b.vx -= grip * wy; hit = true; }
       if (hit) {
+        // the cushion scrubs off most of the side spin and the rolling spin
+        b.wy = wy * 0.4;
+        b.wx = b.vx * 0.6; b.wz = b.vz * 0.6;
         if (Math.hypot(b.vx, b.vz) > 0.15) this.events.sounds.push('cushion');
         if (this.events.firstContact !== null && !this.events.railsAfterContact.includes(b.id)) this.events.railsAfterContact.push(b.id);
         if (b.id !== 0 && !this.events.objectBallsToRail.includes(b.id)) this.events.objectBallsToRail.push(b.id);
@@ -256,6 +326,9 @@ export class PoolSim {
         const vn = rvx * nx + rvz * nz;
         if (vn <= 0) continue; // moving apart
         const imp = vn * (1 + cfg.ballRestitution) / 2;
+        // a ball that was at rest keeps no spin from its partner: it starts skidding
+        if (Math.hypot(b.vx, b.vz) < 1e-6) { b.wx = 0; b.wz = 0; }
+        if (Math.hypot(a.vx, a.vz) < 1e-6) { a.wx = 0; a.wz = 0; }
         a.vx -= imp * nx; a.vz -= imp * nz;
         b.vx += imp * nx; b.vz += imp * nz;
         if (vn > 0.1) this.events.sounds.push('clack');
@@ -269,9 +342,9 @@ export class PoolSim {
 }
 
 /** Convenience: simulate a full shot from a ball layout and return the resting layout plus events. */
-export function simulateShot(balls: Ball[], speed: number, angle: number, cfg: PoolConfig = DEFAULT_POOL): { balls: Ball[]; events: ShotEvents } {
+export function simulateShot(balls: Ball[], speed: number, angle: number, cfg: PoolConfig = DEFAULT_POOL, spin: Spin = NO_SPIN): { balls: Ball[]; events: ShotEvents } {
   const sim = new PoolSim(balls, cfg);
-  sim.strike(speed, angle);
+  sim.strike(speed, angle, spin);
   sim.runToRest();
   return { balls: sim.balls, events: sim.events };
 }

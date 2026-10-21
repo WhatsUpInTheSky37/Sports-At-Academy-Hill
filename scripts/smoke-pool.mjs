@@ -1,7 +1,7 @@
 // Pool smoke test: boots PoolScene in both orientations, plays a break, lets the AI take turns.
 // Headless software GL runs at a few fps, so shots in flight are fast-forwarded with runToRest().
 import { chromium } from 'playwright';
-const base = process.argv[2] ?? 'http://localhost:4182/';
+const base = process.argv[2] ?? 'http://localhost:4173/?renderer=canvas';
 const browser = await chromium.launch({ executablePath: '/opt/pw-browsers/chromium', args: ['--use-gl=swiftshader', '--enable-unsafe-swiftshader'] });
 const errors = [];
 const snap = (page) => page.evaluate(() => {

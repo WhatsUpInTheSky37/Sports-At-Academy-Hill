@@ -213,3 +213,68 @@ describe('ai', () => {
     expect(shot.calledPocket).not.toBeNull();
   });
 });
+
+import { DEFAULT_POOL as CFG2, PoolSim as Sim2, type Ball as Ball2 } from '../src/games/pool/physics';
+
+function twoBalls(): Ball2[] {
+  // cue ball below the 1 ball, aimed straight up the table (+z)
+  return [
+    { id: 0, x: CFG2.tableW / 2, z: 0.6, vx: 0, vz: 0, active: true },
+    { id: 1, x: CFG2.tableW / 2, z: 1.2, vx: 0, vz: 0, active: true },
+  ];
+}
+
+describe('pool spin (regulation table, skid/roll model)', () => {
+  it('uses a regulation 2:1 playing surface', () => {
+    expect(CFG2.tableL / CFG2.tableW).toBeCloseTo(2, 5);
+  });
+
+  it('a centre-ball hit settles to rolling at about 5/7 of the strike speed', () => {
+    const balls: Ball2[] = [{ id: 0, x: CFG2.tableW / 2, z: 0.3, vx: 0, vz: 0, active: true }];
+    const sim = new Sim2(balls, CFG2);
+    sim.strike(3, Math.PI / 2);
+    sim.step(0.4);
+    const c = sim.balls[0];
+    expect(Math.hypot(c.vx - (c.wx ?? 0), c.vz - (c.wz ?? 0))).toBeLessThan(0.02);
+    expect(c.vz).toBeGreaterThan(3 * (5 / 7) - 0.3);
+    expect(c.vz).toBeLessThan(3 * (5 / 7) + 0.05);
+  });
+
+  it('follow (high hit) keeps the cue ball moving forward after a head-on collision, draw (low hit) brings it back', () => {
+    const run = (top: number) => {
+      const sim = new Sim2(twoBalls(), CFG2);
+      sim.strike(3, Math.PI / 2, { side: 0, top, elevation: 0 });
+      let minZ = 99, maxZ = -99;
+      for (let i = 0; i < 600 && !sim.settled; i++) { sim.step(1 / 60); minZ = Math.min(minZ, sim.balls[0].z); maxZ = Math.max(maxZ, sim.balls[0].z); }
+      return { minZ, maxZ, end: sim.balls[0].z };
+    };
+    const centre = run(0);
+    const follow = run(0.9);
+    const draw = run(-0.9);
+    expect(follow.maxZ).toBeGreaterThan(centre.maxZ + 0.1);
+    // the draw shot comes back well past where it started (and may even reach the head rail)
+    expect(draw.minZ).toBeLessThan(0.35);
+  });
+
+  it('side spin changes the rebound angle off a cushion', () => {
+    const run = (side: number) => {
+      const balls: Ball2[] = [{ id: 0, x: CFG2.tableW / 2, z: 0.5, vx: 0, vz: 0, active: true }];
+      const sim = new Sim2(balls, CFG2);
+      sim.strike(4, Math.PI / 2, { side, top: 0, elevation: 0 });
+      sim.runToRest();
+      return sim.balls[0].x;
+    };
+    const noSpin = run(0);
+    expect(Math.abs(run(1) - noSpin)).toBeGreaterThan(0.05);
+    expect(Math.sign(run(1) - noSpin)).toBe(-Math.sign(run(-1) - noSpin));
+  });
+
+  it('an elevated cue with english makes the ball curve (massé)', () => {
+    const balls: Ball2[] = [{ id: 0, x: CFG2.tableW / 2, z: 0.3, vx: 0, vz: 0, active: true }];
+    const sim = new Sim2(balls, CFG2);
+    sim.strike(2.5, Math.PI / 2, { side: 1, top: 0, elevation: 1 });
+    let maxDx = 0;
+    for (let i = 0; i < 60; i++) { sim.step(1 / 60); maxDx = Math.max(maxDx, Math.abs(sim.balls[0].x - CFG2.tableW / 2)); }
+    expect(maxDx).toBeGreaterThan(0.03);
+  });
+});

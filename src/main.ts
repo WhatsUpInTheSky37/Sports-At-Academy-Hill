@@ -9,7 +9,7 @@ import { SetupScene } from './scenes/SetupScene';
 import { SettingsScene } from './scenes/SettingsScene';
 import { RecordsScene } from './scenes/RecordsScene';
 import { ChampionshipScene } from './scenes/ChampionshipScene';
-import { HowToScene, PauseScene, ResultScene } from './scenes/overlays';
+import { ConfirmExitScene, HowToScene, PauseScene, ResultScene } from './scenes/overlays';
 import { DerbyScene } from './games/derby/DerbyScene';
 import { HorseScene } from './games/horse/HorseScene';
 import { PoolScene } from './games/pool/PoolScene';
@@ -40,7 +40,7 @@ const config: Phaser.Types.Core.GameConfig = {
   input: { activePointers: 4 },
   scene: [
     BootScene, MenuScene, SetupScene, SettingsScene, RecordsScene, ChampionshipScene,
-    HowToScene, PauseScene, ResultScene,
+    HowToScene, PauseScene, ResultScene, ConfirmExitScene,
     DerbyScene, HorseScene, PoolScene, WrestlingScene, HockeyScene, FootballScene, DartsScene,
   ],
 };

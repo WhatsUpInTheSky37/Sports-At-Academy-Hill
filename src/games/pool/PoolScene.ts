@@ -7,16 +7,23 @@ import { Meter, displayStyle, textStyle, makeButton, makePanel, makeDim, confett
 import { CharacterSprite } from '../../art/characters';
 import { createCanvas, paintLamp, roundRect, shade, rng } from '../../art/environment';
 import { paintBraidedRug, paintCinderWallHD, paintConcreteHD, paintCouchHD, paintJoists, paintPennantHD, paintPipes, paintPosterHD, paintRoomGrade, paintShelfHD, paintStairsHD, paintWasherDryer } from './basementArt';
-import { DEFAULT_POOL, PoolSim, aimGuide, canPlace, headSpot, pockets, type Ball, type PoolConfig } from './physics';
+import { DEFAULT_POOL, NO_SPIN, PoolSim, aimGuide, canPlace, headSpot, pockets, type Ball, type PoolConfig, type Spin } from './physics';
 import { applyShotResult, callPocket, chooseGroup, createGame, groupOf, needsCall, onTheEight, placeCueBall, remaining, resolveIllegalBreak, POCKET_NAMES, type PoolGameState } from './rules';
 import { chooseShot, choosePlacement, nearestPocketToEight } from './ai';
 
 /** Visual tuning for the billiards scene. */
 export const POOL_VISUAL = {
-  /** Near-rail width as a fraction of screen width, per orientation. */
-  nearWidthFrac: { landscape: 0.74, portrait: 0.86 },
-  /** Near-rail width divided by far-rail width (perspective strength). */
-  depthRatio: { landscape: 1.55, portrait: 1.9 },
+  /**
+   * Near-rail width as a fraction of screen width, per orientation. In landscape the table is seen
+   * from the side (its 9 ft length runs across the screen); in portrait from the head end.
+   */
+  nearWidthFrac: { landscape: 0.8, portrait: 0.68 },
+  /** Near-rail width divided by far-rail width (perspective strength); close to 1 reads as regulation 2:1. */
+  depthRatio: { landscape: 1.22, portrait: 1.2 },
+  /** On-screen cue length in metres (short enough that the butt stays on screen to grab). */
+  cueLength: 0.9,
+  /** Largest strike offset from the cue-ball centre (fraction of the radius) before a miscue. */
+  maxStrikeOffset: 0.8,
   railWidth: 0.075,
   /** Keyboard fine-aim speed in degrees per second. */
   aimKeySpeed: 22,
@@ -64,6 +71,14 @@ export class PoolScene extends BaseGameScene {
   private dragging = false;
   private dragPower = false;
   private simStruck = false;
+  /** Landscape shows the table side-on: table x maps to screen depth and table z runs across. */
+  private swap = false;
+  private spin: Spin = { ...NO_SPIN };
+  private spinGfx!: Phaser.GameObjects.Graphics;
+  private spinLabel!: Phaser.GameObjects.Text;
+  private spinBox = { x: 0, y: 0, r: 44, sx: 0, sy: 0, sh: 90 };
+  private uiDrag: 'none' | 'spin' | 'lift' = 'none';
+  private lastTurnSlot: 0 | 1 | null = null;
 
   create(): void {
     this.setupShell({ music: 'basement' });
@@ -90,9 +105,24 @@ export class PoolScene extends BaseGameScene {
   }
 
   // ---------- Camera / table geometry ----------
+  /** Table coords -> view coords (what the projector sees). */
+  private tv(x: number, z: number): { vx: number; vz: number } {
+    return this.swap ? { vx: z, vz: x } : { vx: x, vz: z };
+  }
+  private get vw(): number { return this.swap ? this.cfg.tableL : this.cfg.tableW; }
+  private get vL(): number { return this.swap ? this.cfg.tableW : this.cfg.tableL; }
+  /** Screen -> table coords on the cloth plane. */
+  private tableAt(sx: number, sy: number): { x: number; z: number } | null {
+    const t = this.proj.unprojectGround(sx, sy);
+    if (!t) return null;
+    return this.swap ? { x: t.z, z: t.x } : { x: t.x, z: t.z };
+  }
+  private depthOf(x: number, z: number): number { return this.vL - this.tv(x, z).vz; }
+
   private buildCamera(): void {
     const W = this.W, P = this.portrait;
-    const { tableW: w, tableL: L } = this.cfg;
+    this.swap = !P;
+    const w = this.vw, L = this.vL;
     const span = this.fieldBottom - this.fieldTop;
     const ratio = P ? POOL_VISUAL.depthRatio.portrait : POOL_VISUAL.depthRatio.landscape;
     const nearW = W * (P ? POOL_VISUAL.nearWidthFrac.portrait : POOL_VISUAL.nearWidthFrac.landscape);
@@ -104,7 +134,12 @@ export class PoolScene extends BaseGameScene {
   }
 
   private sp(x: number, z: number): { sx: number; sy: number; scale: number } {
-    return this.proj.project(x, 0, z);
+    const v = this.tv(x, z);
+    return this.proj.project(v.vx, 0, v.vz);
+  }
+  /** View-space projection (for the table outline, which is drawn in view coordinates). */
+  private vsp(vx: number, vz: number): { sx: number; sy: number; scale: number } {
+    return this.proj.project(vx, 0, vz);
   }
 
   private paintBackdrop(): void {
@@ -163,9 +198,11 @@ export class PoolScene extends BaseGameScene {
 
   /** Paints the table (rails, apron, felt, pockets, sights) in perspective onto the backdrop canvas. */
   private paintTable(ctx: CanvasRenderingContext2D): void {
-    const { tableW: w, tableL: L } = this.cfg;
+    const { tableW: tw, tableL: tL } = this.cfg;
+    // the outline is laid out in view space (w across the screen, L into it); table features map through sp()
+    const w = this.vw, L = this.vL;
     const rw = POOL_VISUAL.railWidth;
-    const poly = (pts: [number, number][]) => pts.map(([x, z]) => this.sp(x, z));
+    const poly = (pts: [number, number][]) => pts.map(([x, z]) => this.vsp(x, z));
     const path = (pts: { sx: number; sy: number }[]) => { ctx.beginPath(); pts.forEach((p, i) => (i ? ctx.lineTo(p.sx, p.sy) : ctx.moveTo(p.sx, p.sy))); ctx.closePath(); };
     // floor shadow
     const outer = poly([[-rw - 0.05, -rw - 0.05], [w + rw + 0.05, -rw - 0.05], [w + rw + 0.05, L + rw + 0.05], [-rw - 0.05, L + rw + 0.05]]);
@@ -208,8 +245,8 @@ export class PoolScene extends BaseGameScene {
     ctx.fillStyle = fg;
     path(cloth); ctx.fill();
     ctx.save(); path(cloth); ctx.clip();
-    const c = this.sp(w / 2, L / 2);
-    const pool = ctx.createRadialGradient(c.sx, c.sy, 10, c.sx, c.sy, (w * 1.1) * c.scale);
+    const c = this.vsp(w / 2, L / 2);
+    const pool = ctx.createRadialGradient(c.sx, c.sy, 10, c.sx, c.sy, (Math.min(w, L) * 1.3) * c.scale);
     pool.addColorStop(0, 'rgba(255,250,200,0.2)'); pool.addColorStop(0.6, 'rgba(255,250,200,0.05)'); pool.addColorStop(1, 'rgba(0,0,0,0.18)');
     ctx.fillStyle = pool;
     ctx.fillRect(0, 0, ctx.canvas.width, ctx.canvas.height);
@@ -230,11 +267,11 @@ export class PoolScene extends BaseGameScene {
     ctx.strokeStyle = 'rgba(10,50,20,0.9)'; ctx.lineWidth = 5; path(cloth); ctx.stroke();
     ctx.strokeStyle = 'rgba(120,220,140,0.25)'; ctx.lineWidth = 1.5;
     path([{ sx: cloth[0].sx + 3, sy: cloth[0].sy - 3 }, { sx: cloth[1].sx - 3, sy: cloth[1].sy - 3 }, { sx: cloth[2].sx - 2, sy: cloth[2].sy - 2 }, { sx: cloth[3].sx + 2, sy: cloth[3].sy - 2 }]); ctx.stroke();
-    // head string and foot spot
-    const hs = poly([[0, L / 4], [w, L / 4]]);
+    // head string and foot spot (table coordinates)
+    const hs = [this.sp(0, tL / 4), this.sp(tw, tL / 4)];
     ctx.strokeStyle = 'rgba(255,255,255,0.22)'; ctx.lineWidth = 2;
     ctx.beginPath(); ctx.moveTo(hs[0].sx, hs[0].sy); ctx.lineTo(hs[1].sx, hs[1].sy); ctx.stroke();
-    const fs = this.sp(w / 2, L * 0.75);
+    const fs = this.sp(tw / 2, tL * 0.75);
     ctx.fillStyle = 'rgba(255,255,255,0.5)';
     ctx.beginPath(); ctx.ellipse(fs.sx, fs.sy, 5, 2.5, 0, 0, Math.PI * 2); ctx.fill();
     // diamond sights (mother-of-pearl)
@@ -247,8 +284,8 @@ export class PoolScene extends BaseGameScene {
       ctx.beginPath(); ctx.moveTo(p.sx, p.sy - s * 0.7); ctx.lineTo(p.sx + s, p.sy); ctx.lineTo(p.sx, p.sy + s * 0.7); ctx.lineTo(p.sx - s, p.sy); ctx.closePath(); ctx.fill();
       ctx.strokeStyle = 'rgba(0,0,0,0.35)'; ctx.lineWidth = 1; ctx.stroke();
     };
-    for (let i = 1; i < 8; i++) { if (i === 4) continue; for (const xx of [-rw / 2, w + rw / 2]) sight(xx, (L * i) / 8); }
-    for (let i = 1; i < 4; i++) { if (i === 2) continue; for (const zz of [-rw / 2, L + rw / 2]) sight((w * i) / 4, zz); }
+    for (let i = 1; i < 8; i++) { if (i === 4) continue; for (const xx of [-rw / 2, tw + rw / 2]) sight(xx, (tL * i) / 8); }
+    for (let i = 1; i < 4; i++) { if (i === 2) continue; for (const zz of [-rw / 2, tL + rw / 2]) sight((tw * i) / 4, zz); }
     // pockets with chrome liners
     for (const p of pockets(this.cfg)) {
       const s = this.sp(p.x, p.z);
@@ -270,11 +307,12 @@ export class PoolScene extends BaseGameScene {
   private buildCharacters(): void {
     const { tableW: w, tableL: L } = this.cfg;
     const span = this.fieldBottom - this.fieldTop;
-    const p = this.sp(-0.55, L * 0.62);
+    const p = this.swap ? this.sp(w + 0.55, L * 0.2) : this.sp(-0.55, L * 0.62);
     const height = span * (this.portrait ? 0.3 : 0.34);
     const scale = height / 220;
     const opp = this.state.turn === 0 ? 1 : 0;
     this.opponentSprite = new CharacterSprite(this, Math.max(90 * scale + 10, p.sx), p.sy + 20 * scale, this.players[opp].character, scale);
+    if (this.swap) this.opponentSprite.setFacing(-1);
     this.opponentSprite.setDepth(150).idle();
     // their cue, leaning in their hand
     const cue = this.add.image(this.opponentSprite.x + 44 * scale, this.opponentSprite.y - 95 * scale, 'cue').setOrigin(0.5, 0.5).setAngle(-80).setScale(0.95 * scale * (220 / 520) * 1.6, scale * 0.9).setDepth(151);
@@ -311,11 +349,44 @@ export class PoolScene extends BaseGameScene {
       panel.lineStyle(3, THEME.accent, 0.85);
       panel.strokeRoundedRect(x, y, w, h, 16);
     };
-    // Aim hint
-    const hw = P ? 230 : 300;
+    // Strike point picker (where the cue hits the cue ball) + cue lift for massé
+    const hw = P ? 250 : 320;
     strip(24, barY - 60, hw, 120);
-    this.add.text(24 + hw / 2, barY - 46, 'AIM', displayStyle(20, '#f5c518', { strokeThickness: 0 })).setOrigin(0.5, 0).setDepth(901);
-    this.hintText = this.add.text(24 + hw / 2, barY - 10, this.useTouch ? 'Drag on the table' : 'Drag / A D keys', textStyle(21, '#ffffff', { align: 'center', wordWrap: { width: hw - 20 } })).setOrigin(0.5, 0).setDepth(901);
+    this.add.text(24 + hw / 2, barY - 56, 'STRIKE THE CUE BALL', displayStyle(17, '#f5c518', { strokeThickness: 0 })).setOrigin(0.5, 0).setDepth(901);
+    const sr = P ? 36 : 40;
+    this.spinBox = { x: 24 + 16 + sr, y: barY + 8, r: sr, sx: 24 + 2 * sr + 46, sy: barY - 26, sh: 62 };
+    this.spinGfx = this.add.graphics().setDepth(902);
+    this.spinLabel = this.add.text(24 + hw - (P ? 54 : 68), barY + 2, '', textStyle(P ? 14 : 16, '#ffffff', { align: 'center', wordWrap: { width: P ? 90 : 118 } })).setOrigin(0.5).setDepth(902);
+    this.add.text(24 + 2 * sr + 58, barY + 42, 'LIFT', textStyle(12, THEME.textDim)).setOrigin(0.5, 0).setDepth(902);
+    this.hintText = this.add.text(24 + 16 + sr, barY + sr + 14, '', textStyle(12, THEME.textDim)).setOrigin(0.5, 0).setDepth(902).setVisible(false);
+    const spinZone = this.add.zone(this.spinBox.x, this.spinBox.y, sr * 2 + 36, sr * 2 + 36).setOrigin(0.5).setInteractive().setDepth(903);
+    const liftZone = this.add.zone(this.spinBox.sx + 12, this.spinBox.sy + this.spinBox.sh / 2, 60, this.spinBox.sh + 30).setOrigin(0.5).setInteractive().setDepth(903);
+    const setSpinFrom = (p: Phaser.Input.Pointer) => {
+      const dx = (p.x - this.spinBox.x) / this.spinBox.r;
+      const dy = (p.y - this.spinBox.y) / this.spinBox.r;
+      const len = Math.hypot(dx, dy);
+      const max = POOL_VISUAL.maxStrikeOffset;
+      const k = len > max ? max / len : 1;
+      this.spin = { ...this.spin, side: dx * k, top: -dy * k };
+      if (len < 0.12) this.spin = { ...this.spin, side: 0, top: 0 };
+      this.drawSpinPicker();
+    };
+    const setLiftFrom = (p: Phaser.Input.Pointer) => {
+      const t = (this.spinBox.sy + this.spinBox.sh - p.y) / this.spinBox.sh;
+      this.spin = { ...this.spin, elevation: Phaser.Math.Clamp(t, 0, 1) };
+      if (this.spin.elevation < 0.08) this.spin.elevation = 0;
+      this.drawSpinPicker();
+    };
+    spinZone.on('pointerdown', (p: Phaser.Input.Pointer) => { this.uiDrag = 'spin'; setSpinFrom(p); });
+    liftZone.on('pointerdown', (p: Phaser.Input.Pointer) => { this.uiDrag = 'lift'; setLiftFrom(p); });
+    this.input.on('pointermove', (p: Phaser.Input.Pointer) => {
+      if (!p.isDown) return;
+      if (this.uiDrag === 'spin') setSpinFrom(p);
+      else if (this.uiDrag === 'lift') setLiftFrom(p);
+    });
+    this.input.on('pointerup', () => { this.uiDrag = 'none'; });
+    this.input.on('pointerupoutside', () => { this.uiDrag = 'none'; });
+    this.drawSpinPicker();
     // Power bar
     const pw = P ? W - 24 - hw - 24 - 24 - 300 : 560;
     const px = P ? 24 + hw + 24 : W / 2 - pw / 2 - 40;
@@ -341,7 +412,7 @@ export class PoolScene extends BaseGameScene {
     this.add.text(bx, barY + 66, this.useTouch ? 'tap' : 'SPACE / F  •  P2: ENTER / ,', textStyle(17, '#fff3c4')).setOrigin(0.5).setDepth(901);
     // Pointer handling on the table area
     this.input.on('pointerdown', (p: Phaser.Input.Pointer) => {
-      if (p.y < this.fieldTop - 30 || p.y > this.fieldBottom + 40 || this.dragPower) return;
+      if (p.y < this.fieldTop - 30 || p.y > this.fieldBottom + 40 || this.dragPower || this.uiDrag !== 'none') return;
       if (!this.isHumanTurn()) return;
       if (this.phase === 'placing') { this.dragging = true; this.tryPlace(p); return; }
       if (this.phase === 'aiming') {
@@ -370,18 +441,19 @@ export class PoolScene extends BaseGameScene {
     this.powerText.setText(`${Math.round(this.power * 100)}%`);
   }
 
+  /** The pointer holds the BUTT of the cue: the cue points from the pointer through the cue ball. */
   private aimAt(p: Phaser.Input.Pointer): void {
-    const t = this.proj.unprojectGround(p.x, p.y);
+    const t = this.tableAt(p.x, p.y);
     const cue = this.cueBall();
     if (!t || !cue) return;
-    const dx = t.x - cue.x;
-    const dz = t.z - cue.z;
+    const dx = cue.x - t.x;
+    const dz = cue.z - t.z;
     if (Math.hypot(dx, dz) < 0.02) return;
     this.aimAngle = Math.atan2(dz, dx);
   }
 
   private tryPlace(p: Phaser.Input.Pointer): void {
-    const t = this.proj.unprojectGround(p.x, p.y);
+    const t = this.tableAt(p.x, p.y);
     if (!t) return;
     const r = this.cfg.ballR;
     const x = Phaser.Math.Clamp(t.x, r, this.cfg.tableW - r);
@@ -419,6 +491,8 @@ export class PoolScene extends BaseGameScene {
   private startTurn(): void {
     if (this.finished) return;
     const s = this.state;
+    if (this.isAI(s.turn) || this.lastTurnSlot !== s.turn) { this.spin = { ...NO_SPIN }; this.drawSpinPicker(); }
+    this.lastTurnSlot = s.turn;
     this.setTurn(s.turn);
     this.swapSprites();
     this.refreshHud();
@@ -438,7 +512,7 @@ export class PoolScene extends BaseGameScene {
         this.doneBtn.setVisible(true);
         this.shootBtn.setVisible(false);
         this.shooterSprite?.setVisible(false);
-        this.hintText.setText('Drag the cue ball to place it');
+        this.hintText.setText('');
         this.setSub(`${this.name(s.turn)}: ball in hand — drag the cue ball, then DONE`);
         return;
       }
@@ -474,7 +548,7 @@ export class PoolScene extends BaseGameScene {
     if (!s.breakPending && onTheEight(s) && s.calledPocket === null && this.isHumanTurn()) {
       this.state = callPocket(s, nearestPocketToEight(s, this.cfg));
     }
-    this.hintText.setText(this.useTouch ? 'Drag on the table to aim' : 'Drag / A D keys to aim');
+    this.hintText.setText('');
     this.refreshHud();
     this.cue.setVisible(true);
     if (this.isAI(s.turn)) this.runAi();
@@ -528,7 +602,7 @@ export class PoolScene extends BaseGameScene {
         this.pullback = 0;
         this.cue.setVisible(false);
         Audio.sfx('cueHit');
-        this.sim?.strike(speed, this.aimAngle);
+        this.sim?.strike(speed, this.aimAngle, this.isHumanTurn() ? this.spin : NO_SPIN);
         this.simStruck = true;
       },
     });
@@ -688,11 +762,11 @@ export class PoolScene extends BaseGameScene {
       if (!b.active) { img.setVisible(false); sh.setVisible(false); continue; }
       const p = this.sp(b.x, b.z);
       const px = Math.max(10, d * p.scale);
-      img.setVisible(true).setPosition(p.sx, p.sy - px * 0.42).setScale(px / 52).setDepth(400 + (this.cfg.tableL - b.z) * 40);
+      img.setVisible(true).setPosition(p.sx, p.sy - px * 0.42).setScale(px / 52).setDepth(400 + this.depthOf(b.x, b.z) * 40);
       // shadow falls away from the lamp over the table centre
       const lx = (b.x - this.cfg.tableW / 2) / this.cfg.tableW;
       const lz = (b.z - this.cfg.tableL / 2) / this.cfg.tableL;
-      sh.setVisible(true).setPosition(p.sx + px * (0.05 + lx * 0.5), p.sy + px * (0.06 - lz * 0.25)).setScale((px / 128) * 1.25, (px / 128) * 0.55).setAlpha(0.65).setDepth(399 + (this.cfg.tableL - b.z) * 40);
+      sh.setVisible(true).setPosition(p.sx + px * (0.05 + lx * 0.5), p.sy + px * (0.06 - lz * 0.25)).setScale((px / 128) * 1.25, (px / 128) * 0.55).setAlpha(0.65).setDepth(399 + this.depthOf(b.x, b.z) * 40);
     }
   }
 
@@ -708,9 +782,18 @@ export class PoolScene extends BaseGameScene {
     // cue stick behind the cue ball
     const back = this.sp(cue.x - Math.cos(this.aimAngle) * 0.4, cue.z - Math.sin(this.aimAngle) * 0.4);
     const ang = Math.atan2(back.sy - c.sy, back.sx - c.sx);
-    const cueScale = (1.45 * c.scale) / 520;
+    const cueScale = (POOL_VISUAL.cueLength * c.scale) / 520;
     const gap = px * 0.6 + this.pullback;
     this.cue.setVisible(true).setPosition(c.sx + Math.cos(ang) * gap, c.sy - px * 0.42 + Math.sin(ang) * gap).setRotation(ang + Math.PI).setScale(cueScale, Math.max(cueScale * 0.9, 0.35));
+    // grab handle on the butt of the cue (this is what the player drags to aim)
+    if (this.isHumanTurn()) {
+      const bl = gap + 520 * cueScale;
+      const bx = c.sx + Math.cos(ang) * bl, by = c.sy - px * 0.42 + Math.sin(ang) * bl;
+      this.guide.lineStyle(3, 0xf5c518, 0.9);
+      this.guide.strokeCircle(bx, by, 26);
+      this.guide.fillStyle(0xf5c518, 0.22);
+      this.guide.fillCircle(bx, by, 26);
+    }
     // aim line to the ghost ball, then predicted object direction
     const g = aimGuide(s.balls, this.aimAngle, this.cfg);
     const e = this.sp(g.end.x, g.end.z);
@@ -739,6 +822,55 @@ export class PoolScene extends BaseGameScene {
         this.pocketMarks.strokeEllipse(p.sx, p.sy, rx * 2, rx * 1.1);
       }
     }
+  }
+
+  /** Cue-ball diagram with the strike point, plus the cue-lift slider and an effect label. */
+  private drawSpinPicker(): void {
+    if (!this.spinGfx) return;
+    const g = this.spinGfx;
+    const { x, y, r, sx, sy, sh } = this.spinBox;
+    g.clear();
+    // ball
+    g.fillStyle(0x000000, 0.35);
+    g.fillCircle(x + 3, y + 4, r + 2);
+    g.fillStyle(0xf4f1e8, 1);
+    g.fillCircle(x, y, r);
+    g.fillStyle(0xffffff, 0.8);
+    g.fillCircle(x - r * 0.35, y - r * 0.35, r * 0.28);
+    g.lineStyle(1.5, 0x8a8a8a, 0.9);
+    g.strokeCircle(x, y, r);
+    g.lineStyle(1, 0x000000, 0.18);
+    g.beginPath(); g.moveTo(x - r, y); g.lineTo(x + r, y); g.moveTo(x, y - r); g.lineTo(x, y + r); g.strokePath();
+    g.strokeCircle(x, y, r * POOL_VISUAL.maxStrikeOffset);
+    // strike point
+    const px = x + this.spin.side * r, py = y - this.spin.top * r;
+    g.fillStyle(0xd32f2f, 1);
+    g.fillCircle(px, py, 6);
+    g.lineStyle(2, 0xffffff, 0.9);
+    g.strokeCircle(px, py, 6);
+    // lift slider
+    g.fillStyle(0x000000, 0.45);
+    g.fillRoundedRect(sx, sy, 24, sh, 8);
+    g.fillStyle(0x4fc3f7, 0.9);
+    const lh = this.spin.elevation * sh;
+    g.fillRoundedRect(sx + 4, sy + sh - lh, 16, Math.max(0.01, lh), 6);
+    g.fillStyle(0xffffff, 1);
+    g.fillRoundedRect(sx - 4, sy + sh - lh - 4, 32, 8, 3);
+    const effect = this.spinEffectName();
+    this.spinLabel.setText(effect);
+  }
+
+  private spinEffectName(): string {
+    const { side, top, elevation } = this.spin;
+    const parts: string[] = [];
+    if (elevation > 0.35 && Math.abs(side) > 0.2) return `MASSÉ ${side < 0 ? 'LEFT' : 'RIGHT'}`;
+    if (top > 0.25) parts.push('FOLLOW');
+    else if (top < -0.25) parts.push('DRAW');
+    if (side > 0.25) parts.push('RIGHT ENGLISH');
+    else if (side < -0.25) parts.push('LEFT ENGLISH');
+    if (elevation > 0.35) parts.push('RAISED CUE');
+    if (!parts.length) return 'CENTER BALL';
+    return parts.join(' + ');
   }
 
   private dashed(x1: number, y1: number, x2: number, y2: number, dash: number, gap: number): void {
