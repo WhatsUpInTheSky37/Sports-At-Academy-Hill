@@ -1,119 +1,137 @@
 import { describe, expect, it } from 'vitest';
-import { DEFAULT_HOCKEY, NO_INPUT, aiInputs, checkGoal, createAiMemory, createHockey, step, type HockeyInputs } from '../src/games/hockey/sim';
+import {
+  DEFAULT_SHOOTOUT, aiShotPlan, attemptsLeft, createShooter, createShootout, goalieHome, openCorner, pokeRate, puckPosition, recordAttempt, resolveShot, stepShooter,
+} from '../src/games/hockey/shootout';
 
-const cfg = DEFAULT_HOCKEY;
-const none: [HockeyInputs, HockeyInputs] = [NO_INPUT, NO_INPUT];
+const cfg = DEFAULT_SHOOTOUT;
+/** Deterministic "no error" random source: gaussian(…) returns 0 when u = 1 (log 1 = 0). */
+const exact = () => 0.999999999;
 
-describe('hockey goal detection', () => {
-  it('scores for slot 1 when the puck fully crosses the near goal line inside the mouth', () => {
-    expect(checkGoal({ x: 0.2, z: 0.3 }, { x: 0.2, z: -0.2 }, cfg)).toBe(1);
+describe('shootout rules', () => {
+  it('starts with player 0 shooting and five attempts each', () => {
+    const s = createShootout();
+    expect(s.shooter).toBe(0);
+    expect(s.attempts).toBe(5);
+    expect(attemptsLeft(s, 0)).toBe(5);
+    expect(attemptsLeft(s, 1)).toBe(5);
   });
-  it('scores for slot 0 when the puck fully crosses the far goal line inside the mouth', () => {
-    expect(checkGoal({ x: -0.5, z: cfg.rinkL - 0.2 }, { x: -0.5, z: cfg.rinkL + 0.2 }, cfg)).toBe(0);
+
+  it('alternates shooters and counts goals', () => {
+    let s = createShootout();
+    s = recordAttempt(s, 'goal');
+    expect(s.shooter).toBe(1);
+    expect(s.goals).toEqual([1, 0]);
+    expect(s.taken).toEqual([1, 0]);
+    s = recordAttempt(s, 'save');
+    expect(s.shooter).toBe(0);
+    expect(s.goals).toEqual([1, 0]);
+    expect(s.taken).toEqual([1, 1]);
   });
-  it('does not score when the puck is outside the posts', () => {
-    expect(checkGoal({ x: cfg.goalW / 2 + 0.3, z: 0.3 }, { x: cfg.goalW / 2 + 0.3, z: -0.2 }, cfg)).toBeNull();
+
+  it('ends early once the trailing player cannot catch up', () => {
+    let s = createShootout();
+    // P0 scores three, P1 misses three: P1 has two left and trails by three
+    for (let i = 0; i < 3; i++) { s = recordAttempt(s, 'goal'); s = recordAttempt(s, 'wide'); }
+    expect(s.phase).toBe('done');
+    expect(s.winner).toBe(0);
   });
-  it('does not score until the puck has fully crossed the line', () => {
-    expect(checkGoal({ x: 0, z: 0.3 }, { x: 0, z: 0.02 }, cfg)).toBeNull();
+
+  it('decides a tie in sudden death pair by pair', () => {
+    let s = createShootout();
+    for (let i = 0; i < 5; i++) { s = recordAttempt(s, 'goal'); s = recordAttempt(s, 'goal'); }
+    expect(s.phase).toBe('shoot');
+    expect(s.suddenDeath).toBe(true);
+    s = recordAttempt(s, 'save');
+    expect(s.phase).toBe('shoot');          // the pair is not complete yet
+    s = recordAttempt(s, 'goal');
+    expect(s.phase).toBe('done');
+    expect(s.winner).toBe(1);
   });
-  it('bounces a puck off the end board outside the goal mouth', () => {
-    const st = createHockey(cfg);
-    st.puck = { x: cfg.goalW / 2 + 0.6, z: 0.3, vx: 0, vz: -6, carrier: null };
-    st.players[0].z = 10; st.players[1].z = 14; // keep sticks away
-    for (let i = 0; i < 6; i++) step(st, none, 1 / 60, cfg);
-    expect(st.puck.vz).toBeGreaterThan(0);
-    expect(st.scores).toEqual([0, 0]);
+
+  it('ignores attempts after the shootout is over', () => {
+    let s = createShootout(1);
+    s = recordAttempt(s, 'goal');
+    s = recordAttempt(s, 'wide');
+    expect(s.phase).toBe('done');
+    expect(recordAttempt(s, 'goal')).toBe(s);
   });
 });
 
-describe('hockey puck physics', () => {
-  it('flips lateral velocity on the side boundary', () => {
-    const st = createHockey(cfg);
-    st.puck = { x: cfg.rinkW / 2 - 0.1, z: 12, vx: 8, vz: 0, carrier: null };
-    st.players[0].z = 2; st.players[1].z = 22;
-    const events = step(st, none, 1 / 30, cfg);
-    expect(st.puck.vx).toBeLessThan(0);
-    expect(events.some((e) => e.type === 'wall')).toBe(true);
+describe('shootout skating', () => {
+  it('skates toward the net and stops short of the crease', () => {
+    const s = createShooter(cfg);
+    for (let i = 0; i < 600; i++) stepShooter(s, 0, 1, 1 / 60, cfg);
+    expect(s.z).toBeCloseTo(cfg.netZ - cfg.minDist, 5);
+    expect(Math.abs(s.x)).toBeLessThan(0.01);
   });
-  it('slows a free puck with friction and eventually stops it', () => {
-    const st = createHockey(cfg);
-    st.puck = { x: 0, z: 12, vx: 0, vz: 3, carrier: null };
-    st.players[0].z = 2; st.players[1].z = 22;
-    for (let i = 0; i < 240; i++) step(st, none, 1 / 60, cfg);
-    expect(Math.hypot(st.puck.vx, st.puck.vz)).toBe(0);
+
+  it('stays on the driveway', () => {
+    const s = createShooter(cfg);
+    for (let i = 0; i < 300; i++) stepShooter(s, 1, 0, 1 / 60, cfg);
+    expect(s.x).toBeCloseTo(cfg.rinkW / 2 - cfg.playerRadius, 5);
+  });
+
+  it('carries the puck ahead on the forehand side', () => {
+    const s = createShooter(cfg);
+    const p = puckPosition(s, cfg);
+    expect(p.z).toBeGreaterThan(s.z);
+    expect(p.x).toBeGreaterThan(s.x);
   });
 });
 
-describe('hockey stick handling', () => {
-  it('a player picks up a nearby puck and carries it in front', () => {
-    const st = createHockey(cfg);
-    st.players[0].x = 0; st.players[0].z = 11.3; // puck at centre (12)
-    st.players[1].z = 22;
-    const events = step(st, none, 1 / 60, cfg);
-    expect(st.puck.carrier).toBe(0);
-    expect(events.some((e) => e.type === 'pickup' && e.slot === 0)).toBe(true);
-    for (let i = 0; i < 30; i++) step(st, none, 1 / 60, cfg);
-    expect(st.puck.z).toBeGreaterThan(st.players[0].z);
+describe('shootout goalie and shots', () => {
+  it('the goalie stands on the line from the puck to the centre of the net', () => {
+    expect(goalieHome({ x: 0, z: 8 }, cfg)).toBeCloseTo(0, 5);
+    const right = goalieHome({ x: 2, z: cfg.netZ - 4 }, cfg);
+    expect(right).toBeGreaterThan(0);
+    expect(right).toBeLessThan(cfg.goalie.maxX + 0.001);
   });
-  it('releasing SHOOT fires the puck forward with power from the charge', () => {
-    const st = createHockey(cfg);
-    st.players[0].z = 11.3; st.players[1].z = 22;
-    step(st, none, 1 / 60, cfg);
-    const hold: [HockeyInputs, HockeyInputs] = [{ ax: 0, az: 0, shoot: true, poke: false }, NO_INPUT];
-    for (let i = 0; i < 60; i++) step(st, hold, 1 / 60, cfg); // full charge
-    const events = step(st, none, 1 / 60, cfg);
-    const shot = events.find((e) => e.type === 'shot');
-    expect(shot && shot.type === 'shot' && shot.power).toBeCloseTo(1, 1);
-    expect(st.puck.carrier).toBeNull();
-    expect(st.puck.vz).toBeGreaterThan(cfg.maxShot * 0.9);
-  });
-  it('a poke check strips the puck from the carrier', () => {
-    const st = createHockey(cfg);
-    st.players[0].z = 11.3; st.players[1].z = 22;
-    step(st, none, 1 / 60, cfg);
-    expect(st.puck.carrier).toBe(0);
-    // opponent faces the carrier from just ahead of the puck
-    st.players[1].x = 0; st.players[1].z = 13.6; st.players[1].fx = 0; st.players[1].fz = -1;
-    const poke: [HockeyInputs, HockeyInputs] = [NO_INPUT, { ax: 0, az: 0, shoot: false, poke: true }];
-    const events = step(st, poke, 1 / 60, cfg);
-    expect(events.some((e) => e.type === 'poke' && e.stripped)).toBe(true);
-    expect(st.puck.carrier).toBeNull();
-    expect(st.players[0].noCarryTimer).toBeGreaterThan(0);
-  });
-});
 
-describe('hockey match flow', () => {
-  it('resets to centre after a goal and ends the match at the winning score', () => {
-    const st = createHockey(cfg);
-    st.players[0].z = 2; st.players[1].z = 22;
-    for (let g = 0; g < cfg.winScore; g++) {
-      st.puck = { x: 0, z: cfg.rinkL - 0.2, vx: 0, vz: 9, carrier: null };
-      st.players[0].z = 2; st.players[1].z = 22; st.players[1].noCarryTimer = 1; st.players[0].noCarryTimer = 1;
-      const events = step(st, none, 1 / 30, cfg);
-      expect(events.some((e) => e.type === 'goal' && e.scorer === 0)).toBe(true);
-      if (g < cfg.winScore - 1) {
-        expect(st.phase).toBe('goal');
-        for (let i = 0; i < 200; i++) step(st, none, 1 / 60, cfg);
-        expect(st.phase).toBe('play');
-        expect(st.puck.z).toBeCloseTo(cfg.rinkL / 2, 5);
-        expect(st.puck.carrier).toBeNull();
-      }
+  it('a clean shot into the top corner beats a centred goalie', () => {
+    const r = resolveShot({ x: 0, z: cfg.netZ - 6 }, { x: cfg.goalW / 2 - 0.2, y: cfg.goalH - 0.2 }, 0, 0, 0.5, cfg, exact);
+    expect(r.outcome).toBe('goal');
+  });
+
+  it('a shot straight at the goalie is saved', () => {
+    const r = resolveShot({ x: 0, z: cfg.netZ - 6 }, { x: 0, y: 0.3 }, 0, 0, 0.5, cfg, exact);
+    expect(r.outcome).toBe('save');
+  });
+
+  it('a shot outside the frame is wide, just outside is the post', () => {
+    expect(resolveShot({ x: 0, z: 8 }, { x: cfg.goalW / 2 + 0.5, y: 0.5 }, 0, 0, 0.5, cfg, exact).outcome).toBe('wide');
+    expect(resolveShot({ x: 0, z: 8 }, { x: cfg.goalW / 2 + 0.05, y: 0.5 }, 0, 0, 0.5, cfg, exact).outcome).toBe('post');
+    expect(resolveShot({ x: 0, z: 8 }, { x: 0.3, y: cfg.goalH + 0.5 }, 0, 0, 0.5, cfg, exact).outcome).toBe('wide');
+  });
+
+  it('a hard goalie reaches a corner from far out that an easy goalie cannot', () => {
+    const far = { x: 0, z: cfg.netZ - 9 };
+    const corner = { x: cfg.goalW / 2 - 0.2, y: 0.9 };
+    const easy = resolveShot(far, corner, 0, 0, 0, cfg, exact);
+    const hard = resolveShot(far, corner, 0, 0, 1, cfg, exact);
+    expect(easy.outcome).toBe('goal');
+    expect(hard.outcome).toBe('save');
+    expect(hard.goalieX).toBeGreaterThan(easy.goalieX);
+  });
+
+  it('only pokes inside the crease zone', () => {
+    expect(pokeRate({ x: 0, z: 5 }, 0.5, cfg)).toBe(0);
+    expect(pokeRate({ x: 0, z: cfg.netZ - 2.5 }, 0.5, cfg)).toBeGreaterThan(0);
+  });
+
+  it('picks the corner on the far side from the goalie', () => {
+    expect(openCorner(0.6, cfg).x).toBeLessThan(0);
+    expect(openCorner(-0.6, cfg).x).toBeGreaterThan(0);
+    const c = openCorner(0.6, cfg, { high: false });
+    expect(c.y).toBeLessThan(0.3);
+  });
+
+  it('CPU plans stay inside the driveway and in front of the crease', () => {
+    for (let i = 0; i < 50; i++) {
+      const p = aiShotPlan(Math.random(), cfg);
+      expect(Math.abs(p.targetX)).toBeLessThan(cfg.rinkW / 2);
+      expect(p.targetZ).toBeLessThan(cfg.netZ - cfg.minDist);
+      expect(p.targetZ).toBeGreaterThan(cfg.startZ);
+      expect(p.inset).toBeGreaterThan(0.1);
     }
-    expect(st.scores[0]).toBe(cfg.winScore);
-    expect(st.phase).toBe('done');
-    expect(st.winner).toBe(0);
-  });
-  it('the AI chases a loose puck and shoots when carrying it near the net', () => {
-    const st = createHockey(cfg);
-    const mem = createAiMemory();
-    const inp = aiInputs(st, 1, 1, mem, 1 / 60, cfg, () => 0.5);
-    expect(Math.hypot(inp.ax, inp.az)).toBeGreaterThan(0);
-    expect(inp.az).toBeLessThan(0); // heading toward the puck at centre from the far end
-    st.puck = { x: 0, z: 5, vx: 0, vz: 0, carrier: 1 };
-    st.players[1].x = 0; st.players[1].z = 6; st.players[1].fz = -1; st.players[1].fx = 0;
-    st.players[0].x = 3; st.players[0].z = 2; // defender out of the shooting lane
-    const shootInp = aiInputs(st, 1, 1, mem, 1 / 60, cfg, () => 0.5);
-    expect(shootInp.shoot).toBe(true);
   });
 });

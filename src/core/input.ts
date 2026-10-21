@@ -13,6 +13,8 @@ export interface ControlsOptions {
   noJoystick?: boolean;
   /** Button colors. */
   colors?: Partial<Record<Button, number>>;
+  /** Screen area (logical px) where a touch starts the joystick; default: left half, lower 60%. */
+  joyArea?: { x: number; y: number; w: number; h: number };
 }
 
 const KEYMAPS: Record<0 | 1, { up: number[]; down: number[]; left: number[]; right: number[]; a: number[]; b: number[]; c: number[] }> = {
@@ -156,7 +158,7 @@ export class Controls {
       c.add([this.joyBase, this.joyKnob]);
       this.joyOrigin = { x: baseX, y: baseY };
       scene.input.on('pointerdown', (p: Phaser.Input.Pointer) => {
-        if (this.joyPointer || p.x > GAME_W * 0.5 || p.y < GAME_H * 0.4) return;
+        if (this.joyPointer || !this.inJoyArea(p.x, p.y)) return;
         this.joyPointer = p;
         this.joyOrigin = { x: p.x, y: p.y };
         this.joyBase?.setPosition(p.x, p.y);
@@ -177,6 +179,13 @@ export class Controls {
       scene.input.on('pointerup', release);
       scene.input.on('pointerupoutside', release);
     }
+  }
+
+  /** True when a touch at (x, y) should start the joystick rather than count as a tap on the game. */
+  inJoyArea(x: number, y: number): boolean {
+    const a = this.opts.joyArea;
+    if (!a) return x <= GAME_W * 0.5 && y >= GAME_H * 0.4;
+    return x >= a.x && x <= a.x + a.w && y >= a.y && y <= a.y + a.h;
   }
 
   private updateJoystick(p: Phaser.Input.Pointer): void {

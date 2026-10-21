@@ -10,7 +10,8 @@ export const SHEET_RES = 2;
 export type BasePoseName =
   | 'idle0' | 'idle1' | 'run0' | 'run1' | 'run2' | 'run3' | 'swing0' | 'swing1' | 'swing2'
   | 'shoot0' | 'shoot1' | 'throw0' | 'throw1' | 'cheer0' | 'cheer1' | 'sad' | 'grapple' | 'down' | 'crouch' | 'push' | 'dizzy'
-  | 'bat0' | 'bat1' | 'bat2' | 'bat3';
+  | 'bat0' | 'bat1' | 'bat2' | 'bat3'
+  | 'skate0' | 'skate1' | 'goalie' | 'wrist';
 /** Every pose also exists as a back view (`back-<pose>`) for behind-the-player camera angles. */
 export type PoseName = BasePoseName | `back-${BasePoseName}`;
 
@@ -55,6 +56,13 @@ const BASE_POSES: Record<BasePoseName, Pose> = {
   bat1: { lArm: 100, rArm: -45, lBend: 0, rBend: -125, lLeg: 30, rLeg: -14, face: 'focus', lean: -7, crouch: 0.34, armsFront: true },
   bat2: { lArm: 92, rArm: -92, lBend: 0, rBend: 0, lLeg: 24, rLeg: -24, face: 'shout', lean: 5, crouch: 0.22, armsFront: true },
   bat3: { lArm: 30, rArm: 90, lBend: 150, rBend: 0, lLeg: 26, rLeg: -28, face: 'grin', lean: 12, crouch: 0.14, armsFront: true },
+  // hockey: low skating stance with both hands on the stick, legs alternating
+  skate0: { lArm: 38, rArm: 34, lBend: 78, rBend: 70, lLeg: 32, rLeg: -26, face: 'focus', lean: 5, crouch: 0.3, armsFront: true },
+  skate1: { lArm: 34, rArm: 38, lBend: 70, rBend: 78, lLeg: -26, rLeg: 32, face: 'focus', lean: 5, crouch: 0.3, armsFront: true },
+  // goalie: wide butterfly-ready stance, hands low and out
+  goalie: { lArm: 52, rArm: 52, lBend: 48, rBend: 48, lLeg: 40, rLeg: -40, face: 'focus', crouch: 0.48, armsFront: true },
+  // wrist shot follow-through: hands pushed forward and across
+  wrist: { lArm: 88, rArm: 60, lBend: 20, rBend: 35, lLeg: 28, rLeg: -24, face: 'shout', lean: 10, crouch: 0.24, armsFront: true },
 };
 
 /**
@@ -988,7 +996,8 @@ export class CharacterSprite extends Phaser.GameObjects.Container {
   readonly sprite: Phaser.GameObjects.Image;
   readonly shadow: Phaser.GameObjects.Image;
   /** Logical scale: 1 = the 220 px design frame. (sprite.scale is this divided by SHEET_RES.) */
-  readonly charScale: number;
+  get charScale(): number { return this._charScale; }
+  private _charScale = 1;
   private anim: PoseName[] = ['idle0', 'idle1'];
   private animFps = 2;
   private animTime = 0;
@@ -998,7 +1007,7 @@ export class CharacterSprite extends Phaser.GameObjects.Container {
 
   constructor(scene: Phaser.Scene, x: number, y: number, readonly character: Character, scale = 1) {
     super(scene, x, y);
-    this.charScale = scale;
+    this._charScale = scale;
     this.shadow = scene.add.image(0, 0, 'shadow').setScale(1.1 * scale, 0.9 * scale).setAlpha(0.9);
     this.sprite = scene.add.image(0, -FRAME * 0.5 * scale + 14 * scale, `char-${character.id}`, 'idle0').setScale(scale / SHEET_RES);
     this.facing = 1;
@@ -1006,6 +1015,16 @@ export class CharacterSprite extends Phaser.GameObjects.Container {
     scene.add.existing(this);
     scene.events.on(Phaser.Scenes.Events.UPDATE, this.tick, this);
     this.once(Phaser.GameObjects.Events.DESTROY, () => scene.events.off(Phaser.Scenes.Events.UPDATE, this.tick, this));
+  }
+
+  /** Change the logical scale (perspective scenes call this every frame as depth changes). */
+  rescale(scale: number): this {
+    if (scale === this._charScale) return this;
+    this._charScale = scale;
+    this.sprite.setScale(scale / SHEET_RES);
+    this.sprite.setY(-FRAME * 0.5 * scale + 14 * scale);
+    this.shadow.setScale(1.1 * scale, 0.9 * scale);
+    return this;
   }
 
   private facing: 1 | -1 = 1;

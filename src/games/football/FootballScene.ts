@@ -109,6 +109,8 @@ export class FootballScene extends BaseGameScene {
 
   // ---------- Setup ----------
   private buildAthletes(): void {
+    // the scene instance is reused on rematch: never keep last match's (destroyed) sprites
+    this.athletes = [];
     const taken = new Set([this.players[0].character.id, this.players[1].character.id]);
     const spare = CHARACTER_IDS.filter((id) => !taken.has(id));
     const chars: Character[][] = [
