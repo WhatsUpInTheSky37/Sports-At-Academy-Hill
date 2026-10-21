@@ -7,7 +7,8 @@ import { Meter, displayStyle, textStyle, confetti, impact } from '../../core/ui'
 import type { Controls } from '../../core/input';
 import { CHARACTER_IDS, CHARACTERS, type Character } from '../../core/characters';
 import { CharacterSprite, type PoseName } from '../../art/characters';
-import { createCanvas, paintGrass, paintHouseFront, paintPine, paintSky, paintTreeSide, rng } from '../../art/environment';
+import { createCanvas, paintHaze, paintLawnHD, paintPineHD, paintSkyHD, paintTreeHD, paintVignette, rng } from '../../art/environment';
+import { paintFenceHD, paintHouseHD } from './art';
 import {
   FOOTBALL_CONFIG, attackDir, canForwardPass, clampX, createFootball, crossedGoal, describeYard, endPlay, interception,
   ordinal, other, outOfBoundsX, yardsToGoal, type FootballState, type Team,
@@ -164,37 +165,55 @@ export class FootballScene extends BaseGameScene {
     const key = `football-bg-${W}x${H}`;
     if (!this.textures.exists(key)) {
       const { canvas, ctx } = createCanvas(W, H);
-      const horizon = this.proj.cam.horizonY;
-      paintSky(ctx, W, H, horizon + 2);
-      paintGrass(ctx, 0, horizon, W, H - horizon, 13, '#5b9a3a');
+      const pr = this.proj;
+      const horizon = pr.cam.horizonY;
       const r = rng(41);
-      // Far houses and big trees of the neighbourhood (static backdrop on the horizon)
-      const far = this.proj.scaleAt(70);
-      for (let i = 0; i < 9; i++) {
-        const x = (i / 8) * (W + 400) - 200 + (r() - 0.5) * 80;
-        const s = far * (0.9 + r() * 0.3);
-        paintHouseFront(ctx, x - 7 * s, horizon - 6 * s, 14 * s, 6 * s, { siding: ['#f1e6c8', '#d9e4f0', '#e8d4c0', '#cfe3cf'][i % 4] });
+      paintSkyHD(ctx, W, H, horizon + 2, { sunX: W * 0.22, sunY: horizon * 0.26, seed: 23 });
+      // The neighbourhood beyond the back fence: a hazy tree line, then rooftops and houses in front of it.
+      const far = pr.scaleAt(70);
+      const woods: { x: number; z: number; s: number; seed: number }[] = [];
+      for (let i = 0; i < 44; i++) woods.push({ x: -110 + i * 5.2 + r() * 3, z: 88 + r() * 50, s: 8 + r() * 7, seed: 100 + i });
+      woods.sort((a, b) => b.z - a.z).forEach((t) => {
+        const p = pr.project(t.x, 0, t.z);
+        const haze = Math.min(0.78, 0.3 + (t.z - 80) / 80);
+        if (t.seed % 3 === 0) paintPineHD(ctx, p.sx, p.sy, t.s * 1.25 * p.scale, t.seed, { haze });
+        else paintTreeHD(ctx, p.sx, p.sy, t.s * p.scale, t.seed, { haze });
+      });
+      const houses: { x: number; z: number; w: number; seed: number }[] = [];
+      for (let i = 0; i < 9; i++) houses.push({ x: -62 + i * 15.5 + (r() - 0.5) * 3, z: 74 + r() * 8, w: 11 + r() * 4, seed: 300 + i });
+      houses.sort((a, b) => b.z - a.z).forEach((hs, i) => {
+        const p = pr.project(hs.x, 0, hs.z);
+        const sc = p.scale;
+        const haze = Math.min(0.5, 0.18 + (hs.z - 74) / 40);
+        paintHouseHD(ctx, p.sx - (hs.w / 2) * sc, p.sy - 6.2 * sc, hs.w * sc, 6.2 * sc, { siding: ['#efe6cf', '#d9e4f0', '#e6d2c0', '#d3e3cf', '#f1dede'][i % 5], roof: ['#5a4238', '#3f3a44', '#6a4a3a'][i % 3], haze, seed: hs.seed, garage: i % 3 === 1 });
+        // a yard tree or two in front of each house
+        if (r() > 0.4) paintTreeHD(ctx, p.sx + (r() - 0.5) * hs.w * 0.9 * sc, p.sy + 0.4 * sc, (5 + r() * 3) * sc, hs.seed + 7, { haze: haze * 0.6 });
+      });
+      paintHaze(ctx, W, horizon, 100);
+      // the grassy field itself (static texture; the yard lines are drawn per frame on top)
+      paintLawnHD(ctx, pr, { x0: -40, x1: 40, z0: -6, z1: 66 }, { seed: 13, base: '#5a9838', stripeWidth: 4.6, tuftDensity: 0.9 });
+      // worn dirt where the kids play down the middle of the field
+      for (let i = 0; i < 26; i++) {
+        const wx = (r() - 0.5) * 8, wz = 2 + r() * 50;
+        const p = pr.project(wx, 0, wz);
+        if (!p.visible) continue;
+        const rad = (1.2 + r() * 2.2) * p.scale;
+        const pg = ctx.createRadialGradient(p.sx, p.sy, 0, p.sx, p.sy, rad);
+        pg.addColorStop(0, 'rgba(150,120,70,0.32)');
+        pg.addColorStop(0.6, 'rgba(130,110,60,0.14)');
+        pg.addColorStop(1, 'rgba(130,110,60,0)');
+        ctx.fillStyle = pg;
+        ctx.beginPath(); ctx.ellipse(p.sx, p.sy, rad, rad * 0.4, 0, 0, Math.PI * 2); ctx.fill();
       }
-      for (let i = 0; i < 22; i++) {
-        const x = (i / 21) * (W + 300) - 150 + (r() - 0.5) * 60;
-        if (i % 3 === 0) paintPine(ctx, x, horizon + 1, far * (9 + r() * 4), 50 + i);
-        else paintTreeSide(ctx, x, horizon + 1, far * (10 + r() * 5), 60 + i);
-      }
-      // Back fence along the horizon
-      const fh = Math.max(14, far * 2.2);
-      const g = ctx.createLinearGradient(0, horizon - fh, 0, horizon + 4);
-      g.addColorStop(0, '#9c7247');
-      g.addColorStop(1, '#5c3e22');
-      ctx.fillStyle = g;
-      ctx.fillRect(0, horizon - fh, W, fh + 4);
-      ctx.strokeStyle = 'rgba(40,20,5,0.5)';
-      ctx.lineWidth = 1;
-      for (let x = 0; x < W; x += Math.max(6, fh * 0.45)) { ctx.beginPath(); ctx.moveTo(x, horizon - fh); ctx.lineTo(x, horizon + 4); ctx.stroke(); }
-      ctx.fillStyle = 'rgba(255,255,255,0.12)';
-      ctx.fillRect(0, horizon - fh * 0.7, W, 2);
-      // Foreground framing trees at the left/right edges (behind the field band, so keep them tall)
-      paintTreeSide(ctx, -40, horizon + 40, 300, 91);
-      paintTreeSide(ctx, W + 40, horizon + 40, 300, 92);
+      // back fence along the far end of the field, with a gate and a shed behind it
+      const fenceP = pr.project(0, 0, 66);
+      const fh = Math.max(16, 1.9 * fenceP.scale);
+      paintFenceHD(ctx, -10, W + 10, fenceP.sy, fh, 17);
+      // framing trees close to the camera at the left and right edges
+      paintTreeHD(ctx, -30, horizon + 70, 360, 91);
+      paintTreeHD(ctx, W + 30, horizon + 60, 340, 92);
+      paintPineHD(ctx, 60, horizon + 120, 230, 93);
+      paintVignette(ctx, W, H, 0.22);
       this.textures.addCanvas(key, canvas);
     }
     this.add.image(W / 2, H / 2, key).setDepth(0);
@@ -654,17 +673,36 @@ export class FootballScene extends BaseGameScene {
     return this.proj.project(w.wx, h, w.wz);
   }
 
-  /** Clip a ground segment to the near plane and draw it. */
-  private segment(g: Phaser.GameObjects.Graphics, ax: number, ay: number, bx: number, by: number): void {
+  /** Clip a ground segment to the near plane and draw it as a hand-pushed chalk line (slightly wavy, uneven). */
+  private segment(g: Phaser.GameObjects.Graphics, ax: number, ay: number, bx: number, by: number, chalk = true): void {
     let a = this.world(ax, ay);
     let b = this.world(bx, by);
     const near = 0.6 - this.proj.cam.camZ + 0.6; // world z threshold so that depth stays > 0.6
     if (a.wz < near && b.wz < near) return;
     if (a.wz < near) { const t = (near - a.wz) / (b.wz - a.wz); a = { wx: a.wx + (b.wx - a.wx) * t, wz: near }; }
     if (b.wz < near) { const t = (near - b.wz) / (a.wz - b.wz); b = { wx: b.wx + (a.wx - b.wx) * t, wz: near }; }
-    const pa = this.proj.project(a.wx, 0, a.wz);
-    const pb = this.proj.project(b.wx, 0, b.wz);
-    g.beginPath(); g.moveTo(pa.sx, pa.sy); g.lineTo(pb.sx, pb.sy); g.strokePath();
+    if (!chalk) {
+      const pa = this.proj.project(a.wx, 0, a.wz);
+      const pb = this.proj.project(b.wx, 0, b.wz);
+      g.beginPath(); g.moveTo(pa.sx, pa.sy); g.lineTo(pb.sx, pb.sy); g.strokePath();
+      return;
+    }
+    // deterministic wobble keyed on the segment's world position so the lines do not shimmer between frames
+    const steps = 10;
+    let seed = Math.round((ax + ay * 7 + bx * 13 + by * 17) * 10) & 0x7fffffff;
+    const nx = -(b.wz - a.wz), nz = b.wx - a.wx;
+    const nl = Math.hypot(nx, nz) || 1;
+    g.beginPath();
+    for (let i = 0; i <= steps; i++) {
+      const t = i / steps;
+      seed = (seed * 1103515245 + 12345) & 0x7fffffff;
+      const wob = ((seed / 0x7fffffff) - 0.5) * 0.16 * (i === 0 || i === steps ? 0.3 : 1);
+      const wx = a.wx + (b.wx - a.wx) * t + (nx / nl) * wob;
+      const wz = a.wz + (b.wz - a.wz) * t + (nz / nl) * wob;
+      const p = this.proj.project(wx, 0, Math.max(near, wz));
+      if (i === 0) g.moveTo(p.sx, p.sy); else g.lineTo(p.sx, p.sy);
+    }
+    g.strokePath();
   }
 
   private quad(g: Phaser.GameObjects.Graphics, pts: [number, number][]): void {
@@ -700,9 +738,14 @@ export class FootballScene extends BaseGameScene {
     g.fillStyle(0xf5c518, 0.1);
     const los = this.state.lineOfScrimmage;
     this.quad(g, [[-hw, los - 0.25], [hw, los - 0.25], [hw, los + 0.25], [-hw, los + 0.25]]);
-    // yard lines
-    g.lineStyle(3, 0xffffff, 0.75);
+    // yard lines (hand-pushed chalk: a soft wide pass under a crisp one)
+    g.lineStyle(7, 0xffffff, 0.18);
     for (let y = 5; y < L; y += 5) this.segment(g, -hw, y, hw, y);
+    g.lineStyle(3, 0xffffff, 0.8);
+    for (let y = 5; y < L; y += 5) this.segment(g, -hw, y, hw, y);
+    g.lineStyle(9, 0xffffff, 0.2);
+    this.segment(g, -hw, 0, hw, 0);
+    this.segment(g, -hw, L, hw, L);
     g.lineStyle(5, 0xffffff, 0.95);
     this.segment(g, -hw, 0, hw, 0);
     this.segment(g, -hw, L, hw, L);
@@ -712,16 +755,26 @@ export class FootballScene extends BaseGameScene {
     this.segment(g, hw, -E, hw, L + E);
     g.lineStyle(4, 0xf5c518, 0.9);
     this.segment(g, -hw, los, hw, los);
-    // cones at the goal lines and end lines
+    // cones at the goal lines and end lines: shaded body, lit side, white band, square base and a cast shadow
     for (const [x, y] of [[-hw, 0], [hw, 0], [-hw, L], [hw, L], [-hw, -E], [hw, -E], [-hw, L + E], [hw, L + E]] as [number, number][]) {
       const p = this.screen(x, y);
       if (!p.visible || p.scale <= 0) continue;
       const s = p.scale * 0.45;
       if (s < 2) continue;
-      g.fillStyle(0xff7a1f, 1);
-      g.fillTriangle(p.sx - s * 0.6, p.sy, p.sx + s * 0.6, p.sy, p.sx, p.sy - s * 1.6);
-      g.fillStyle(0xffffff, 0.8);
-      g.fillRect(p.sx - s * 0.3, p.sy - s * 0.9, s * 0.6, s * 0.18);
+      g.fillStyle(0x000000, 0.28);
+      g.fillEllipse(p.sx + s * 0.5, p.sy + s * 0.05, s * 1.6, s * 0.4);
+      g.fillStyle(0x1f1f1f, 1);
+      g.fillRect(p.sx - s * 0.7, p.sy - s * 0.1, s * 1.4, s * 0.2);
+      g.fillStyle(0xd85f12, 1);
+      g.fillTriangle(p.sx - s * 0.58, p.sy, p.sx + s * 0.58, p.sy, p.sx, p.sy - s * 1.6);
+      g.fillStyle(0xff8a2e, 1);
+      g.fillTriangle(p.sx - s * 0.58, p.sy, p.sx + s * 0.08, p.sy, p.sx, p.sy - s * 1.6);
+      g.fillStyle(0xffb070, 0.9);
+      g.fillTriangle(p.sx - s * 0.4, p.sy - s * 0.1, p.sx - s * 0.12, p.sy - s * 0.1, p.sx - s * 0.02, p.sy - s * 1.45);
+      g.fillStyle(0xffffff, 0.85);
+      g.fillRect(p.sx - s * 0.32, p.sy - s * 0.95, s * 0.64, s * 0.2);
+      g.fillStyle(0xd9d9d9, 0.85);
+      g.fillRect(p.sx + s * 0.05, p.sy - s * 0.95, s * 0.27, s * 0.2);
     }
     // yard numbers every 10
     for (let y = 10; y < L; y += 10) {
