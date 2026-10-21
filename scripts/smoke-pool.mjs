@@ -27,7 +27,7 @@ async function run(label, viewport, hasTouch) {
   await page.keyboard.press('Space'); // break
   let shotsSeen = 0;
   let afterBreakShot = false;
-  for (let i = 0; i < 120; i++) {
+  for (let i = 0; i < 200; i++) {
     await page.waitForTimeout(500);
     const s = await snap(page);
     if (s.phase === 'rolling' && s.struck) {
@@ -36,6 +36,7 @@ async function run(label, viewport, hasTouch) {
     if (s.shots !== shotsSeen) { shotsSeen = s.shots; console.log(label, 'shot', s.shots, JSON.stringify({ turn: s.turn, active: s.active, msg: s.msg, groups: s.groups, pending: s.pending })); }
     if (s.shots >= 1 && !afterBreakShot && s.phase !== 'rolling') { afterBreakShot = true; await page.screenshot({ path: `smoke-output/pool-${label}-after-break.png` }); }
     // if it is the human's turn and they are aiming, take a shot; if placing, finish placing
+    if (s.phase === 'pending' && s.pending && s.turn === 0) { await page.screenshot({ path: `smoke-output/pool-${label}-pending.png` }); await page.mouse.click(viewport.width / 2 - 200, viewport.height / 2 + 40); }
     if (s.phase === 'placing') await page.evaluate(() => window.__game.scene.getScene('PoolScene').finishPlacing());
     else if (s.phase === 'aiming' && s.turn === 0) { await page.waitForTimeout(300); await page.keyboard.press('Space'); }
     if (s.shots >= 6 || s.winner !== null) break;
