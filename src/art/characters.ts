@@ -13,7 +13,7 @@ export type BasePoseName =
   | 'shoot0' | 'shoot1' | 'throw0' | 'throw1' | 'cheer0' | 'cheer1' | 'sad' | 'grapple' | 'down' | 'crouch' | 'push' | 'dizzy'
   | 'bat0' | 'bat1' | 'bat2' | 'bat3'
   | 'skate0' | 'skate1' | 'goalie' | 'wrist'
-  | 'punch' | 'kick';
+  | 'punch' | 'kick' | 'pin';
 /** Every pose also exists as a back view (`back-<pose>`) for behind-the-player camera angles. */
 export type PoseName = BasePoseName | `back-${BasePoseName}`;
 
@@ -68,6 +68,8 @@ const BASE_POSES: Record<BasePoseName, Pose> = {
   // wrestling strikes: a straight punch (lead arm out, rear arm guarding) and a leg kick (lead leg swung high)
   punch: { lArm: 92, rArm: 40, lBend: 0, rBend: 100, lLeg: 28, rLeg: -22, face: 'shout', lean: 10, crouch: 0.18, armsFront: true },
   kick: { lArm: 55, rArm: 25, lBend: 60, rBend: 70, lLeg: 85, rLeg: -8, face: 'shout', lean: -12, crouch: 0.06, armsFront: true },
+  // pin cover: lying across the opponent, one arm hooked down over them, the other thrown up for the count
+  pin: { lArm: 95, rArm: 105, lBend: 10, rBend: 25, lLeg: 36, rLeg: -30, face: 'shout', rotate: 62, armsFront: true },
 };
 
 /**

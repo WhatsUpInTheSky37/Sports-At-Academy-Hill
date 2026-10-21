@@ -19,6 +19,9 @@ export const WRESTLING_VISUAL = {
   wallZ: 6.5,
   wallHeight: 2.5,
   sideX: 5.2,
+  /** How high (m) the pinning wrestler is drawn above the cushions while covering, and how far (m) toward the opponent's feet. */
+  pinLift: 0.22,
+  pinShift: 0.6,
 };
 
 export class WrestlingScene extends BaseGameScene {
@@ -507,15 +510,20 @@ export class WrestlingScene extends BaseGameScene {
     const order: (0 | 1)[] = s.w[0].z > s.w[1].z ? [0, 1] : [1, 0];
     for (const slot of order) {
       const w = s.w[slot];
-      const p = pr.project(w.x, WRESTLING_VISUAL.cushionHeight, w.z);
+      const covering = s.pin.active && s.pin.attacker === slot && s.phase !== 'done';
+      // the pinner lies across the downed wrestler: draw them over the opponent's torso, a little raised, in front
+      const anchor = covering ? s.w[other(slot)] : w;
+      const p = pr.project(anchor.x, WRESTLING_VISUAL.cushionHeight + (covering ? WRESTLING_VISUAL.pinLift : 0), anchor.z);
       const sp = this.sprites[slot];
       const scale = p.scale * WRESTLING_VISUAL.spriteHeight / 220;
-      sp.setPosition(p.sx, p.sy);
+      // a downed wrestler always lies head-right, so the cover sits toward screen-left (their feet)
+      sp.setPosition(p.sx - (covering ? WRESTLING_VISUAL.pinShift * p.scale : 0), p.sy);
       sp.sprite.setScale(scale);
       sp.sprite.setY(-220 * 0.5 * scale + 14 * scale);
       sp.shadow.setScale(1.1 * scale, 0.9 * scale);
-      sp.setDepth(100 + (10 - w.z) * 10);
-      sp.setFacing(w.facing);
+      sp.shadow.setVisible(!covering);
+      sp.setDepth(100 + (10 - anchor.z) * 10 + (covering ? 1 : 0));
+      sp.setFacing(covering ? anchor.facing : w.facing);
       if (s.phase !== 'done') {
         switch (w.state) {
           case 'idle': if (w.moving) sp.run(); else sp.idle(); break;
@@ -523,7 +531,7 @@ export class WrestlingScene extends BaseGameScene {
           case 'grapple': sp.setPose('grapple'); break;
           case 'down': sp.setPose('down'); break;
           case 'pinned': sp.setPose('down'); break;
-          case 'pinning': sp.setPose('push'); break;
+          case 'pinning': sp.setPose('pin'); break;
           case 'strike': sp.setPose(w.strike === 'kick' ? 'kick' : 'punch'); break;
         }
       }
