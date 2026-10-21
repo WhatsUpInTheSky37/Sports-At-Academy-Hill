@@ -49,7 +49,7 @@ export class HorseScene extends BaseGameScene {
   private hoopBack!: Phaser.GameObjects.Graphics;
   private house!: Phaser.GameObjects.Graphics;
   private spotZones: Phaser.GameObjects.Zone[] = [];
-  private spotLabel!: Phaser.GameObjects.Text;
+  private spotTitle!: Phaser.GameObjects.Text;
   private reticle!: Phaser.GameObjects.Container;
   private preview!: Phaser.GameObjects.Graphics;
   private aim = { x: 0, y: 0 }; // -1..1
@@ -91,7 +91,6 @@ export class HorseScene extends BaseGameScene {
     this.house = this.add.graphics().setDepth(14);
     this.hoopBack = this.add.graphics().setDepth(30);
     this.hoopFront = this.add.graphics().setDepth(46);
-    this.spotLabel = this.add.text(0, 0, '', displayStyle(22, '#f5c518', { strokeThickness: 4 })).setOrigin(0.5, 0).setDepth(12);
     this.waiter = new CharacterSprite(this, 0, 0, this.players[1].character, 1);
     this.waiter.setDepth(20).idle();
     this.shooter = new CharacterSprite(this, 0, 0, this.players[0].character, 1);
@@ -299,17 +298,16 @@ export class HorseScene extends BaseGameScene {
     this.shooter.sprite.setScale(sScale);
     this.shooter.shadow.setScale(1.1 * sScale, 0.9 * sScale);
     this.shooter.sprite.setY(-220 * 0.5 * sScale + 14 * sScale);
-    const wp = pr.project(-2.6, 0, 0.2);
+    // the waiting player stands beside the hoop on the side opposite the shooter so they never overlap
+    const wp = pr.project(sp.x >= 0 ? -2.6 : 2.6, 0, 0.2);
     const wScale = (wp.scale * 2.0) / 220;
     this.waiter.setPosition(wp.sx, wp.sy);
     this.waiter.sprite.setScale(wScale);
     this.waiter.shadow.setScale(1.1 * wScale, 0.9 * wScale);
     this.waiter.sprite.setY(-220 * 0.5 * wScale + 14 * wScale);
-    this.waiter.setFacing(1);
+    this.waiter.setFacing(sp.x >= 0 ? 1 : -1);
     this.waiter.setDepth(this.waiter.y < this.shooter.y ? 20 : 61);
-    // Spot label under the shooter
-    const lbl = pr.project(sp.x, 0, sp.z - 0.6);
-    this.spotLabel.setPosition(lbl.sx, lbl.sy + 6).setText(`SHOT SPOT: ${sp.name.toUpperCase()}`);
+    this.spotTitle?.setText(`SPOT: ${sp.name.toUpperCase()}`);
     // reticle centre
     this.lastPreviewKey = '';
   }
@@ -465,7 +463,7 @@ export class HorseScene extends BaseGameScene {
     hint.fillRoundedRect(hx, hy, hw, 120, 16);
     hint.lineStyle(3, THEME.accent, 0.8);
     hint.strokeRoundedRect(hx, hy, hw, 120, 16);
-    this.add.text(hx + hw / 2, hy + 12, 'CHOOSE SPOT  •  AIM', displayStyle(18, '#f5c518', { strokeThickness: 0 })).setOrigin(0.5, 0).setDepth(901);
+    this.spotTitle = this.add.text(hx + hw / 2, hy + 12, 'SPOT', displayStyle(18, '#f5c518', { strokeThickness: 0 })).setOrigin(0.5, 0).setDepth(901);
     this.hintText = this.add.text(hx + hw / 2, hy + 44, this.useTouch ? 'Tap a chalk circle to pick a spot\nDrag on the hoop to aim' : 'Arrow keys / WASD: pick a spot\nDrag with the mouse to aim', textStyle(18, '#ffffff', { align: 'center' })).setOrigin(0.5, 0).setDepth(901);
     this.powerText = this.add.text(hx + hw / 2, hy + 94, '', textStyle(17, THEME.textDim)).setOrigin(0.5, 0).setDepth(901);
     // SHOOT button: hold to start the meter, release to shoot
@@ -596,6 +594,8 @@ export class HorseScene extends BaseGameScene {
     this.meterStart = this.time.now;
     this.timingLabel.setText('');
     this.spotZones.forEach((z) => z.disableInteractive());
+    this.shooter.setPose('back-shoot1');
+    this.placeHeldBall();
   }
 
   private releaseShoot(ai = false): void {
@@ -618,6 +618,7 @@ export class HorseScene extends BaseGameScene {
     this.aiRelease = null;
     this.preview.clear();
     this.shooter.setPose('back-shoot1');
+    this.ballShadow.setVisible(true);
     Audio.sfx('throw');
     const label = result.timing.toUpperCase();
     const col = result.timing === 'perfect' ? '#f5c518' : '#8bc34a';
@@ -640,11 +641,11 @@ export class HorseScene extends BaseGameScene {
     if (r.made) {
       this.announce(banked ? 'BANK! GOOD!' : rimmed ? "IT'S GOOD!" : 'SWISH!', { color: '#f5c518', size: this.portrait ? 70 : 84, y: ay });
       confetti(this, W / 2, ay, 30);
-      this.react(slot, 'cheer', this.shooter.x, this.shooter.y - 420 * this.shooter.sprite.scale);
+      this.react(slot, 'cheer', this.shooter.x, Math.max(this.fieldTop + 120, this.shooter.y - 230 * this.shooter.sprite.scale));
     } else {
       const why = r.events.some((e) => e.kind === 'backboard') ? 'OFF THE BOARD' : rimmed ? 'RIMS OUT' : 'AIRBALL';
       this.announce(`${why} — MISS`, { color: '#ef5350', size: this.portrait ? 54 : 66, y: ay });
-      if (Math.random() < 0.5) this.react(slot, 'groan', this.shooter.x, this.shooter.y - 420 * this.shooter.sprite.scale);
+      if (Math.random() < 0.5) this.react(slot, 'groan', this.shooter.x, Math.max(this.fieldTop + 120, this.shooter.y - 230 * this.shooter.sprite.scale));
     }
     this.refreshHud();
     let delay = HORSE_VISUAL.resultHoldMs;
@@ -728,7 +729,7 @@ export class HorseScene extends BaseGameScene {
     if (this.phase === 'flight' && this.shot) {
       this.flightT = (this.time.now - this.flightStart) / 1000;
       const pts = this.shot.points;
-      const idx = Math.min(pts.length - 1, Math.floor(this.flightT * 120));
+      const idx = Math.max(0, Math.min(pts.length - 1, Math.floor(this.flightT * 120)));
       const p = pts[idx];
       this.placeBall(p.x, p.y, p.z);
       while (this.eventIdx < this.shot.events.length && this.shot.events[this.eventIdx].t <= this.flightT) {
@@ -743,10 +744,19 @@ export class HorseScene extends BaseGameScene {
     }
   }
 
+  /** Before the wind-up the ball is tucked at the chest (hidden from behind); during the meter it is raised overhead. */
   private placeHeldBall(): void {
-    const sp = SPOTS[this.spotIndex];
-    this.placeBall(sp.x + 0.08, 1.5, sp.z + 0.45);
-    this.ball.setDepth(65);
+    if (this.phase === 'meter') {
+      const sc = this.shooter.sprite.scale;
+      const sp = SPOTS[this.spotIndex];
+      const depthScale = this.proj.project(sp.x, 0, sp.z).scale;
+      const px = Math.max(14, HORSE_VISUAL.ballDiameter * depthScale);
+      this.ball.setVisible(true).setPosition(this.shooter.x + 12 * sc, this.shooter.y - 214 * sc).setScale(px / 72).setDepth(65);
+      this.ballShadow.setVisible(false);
+    } else {
+      this.ball.setVisible(false);
+      this.ballShadow.setVisible(false);
+    }
   }
 
   private placeBall(x: number, y: number, z: number): void {

@@ -13,9 +13,9 @@ Working notes for the Sports at Academy Hill build. Updated as work lands.
 
 - Game 4 Wrestling, Game 5 Hockey, Game 6 Football, Game 7 Darts: complete with pure rules/sim modules, AI, touch controls, both orientations, tests, and headless screenshots reviewed.
 
-## In progress
-- Game 2 HORSE and Game 3 Billiards (being built in their own folders with pure rules modules and tests).
+- Game 2 HORSE and Game 3 Billiards: complete with pure rules/physics modules, AI, tests, screenshots reviewed.
+- Full suite (113 tests), production build and the all-scene smoke pass are green; the championship flow runs through all seven events to the champion screen in the browser.
 
 ## Remaining
-- Integrate all seven games, run the full test suite, production build and browser smoke test for every game in both orientations.
-- README polish, final commit/PR.
+- In-browser match completions for hockey, wrestling, football, HORSE and billiards (idle playthrough scripts running).
+- Final pull request update.

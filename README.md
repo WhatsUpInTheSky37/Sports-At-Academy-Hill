@@ -27,7 +27,12 @@ npm test                 # vitest: rules/physics/scoring tests for every game + 
 npm run typecheck
 npm run build && npm run preview &   # then, in another shell:
 npm run smoke            # headless Chromium: boots every scene in both orientations, screenshots to smoke-output/
+node scripts/play-championship.mjs   # runs a full seven-event championship through the shell to the champion screen
+node scripts/play-derby.mjs          # plays a complete derby match vs the CPU
+node scripts/play-idle.mjs HockeyScene 900   # plays one game vs the CPU to the result screen (fast-forwarded)
 ```
+
+The smoke and playthrough scripts open `?renderer=canvas`, a URL switch that forces Phaser's Canvas renderer (headless Chromium's software WebGL is too slow to be useful). Normal play uses WebGL.
 
 ## Playing
 
@@ -84,7 +89,7 @@ src/scenes/             boot, menu, setup, settings, records, championship hub, 
 src/games/<game>/       one folder per sport: pure rules/physics modules + the Phaser scene
 tests/                  vitest suites (rules, physics, scoring, championship, storage)
 scripts/                headless browser smoke/playthrough scripts
-public/reference-images/  put property reference photos here (see below)
+reference-images/       property reference photos (overhead + street view) used to lay out the yard scenes
 public/logo.png         optional: the game logo for the title screen
 ```
 
@@ -96,4 +101,9 @@ If you drop `logo.png` into `public/`, the title screen uses it; otherwise the t
 
 ## Reference images for future property art
 
-Put the overhead and street-level photos of the house, backyard and driveway in `public/reference-images/` (they are not shipped to the game; the folder is a working reference). The derby, HORSE and hockey scenes paint the property from a written description: long driveway along the right side of the yard, the house beside it, small jumpable trees with gaps along the back boundary, and the backyard opening up-and-left from the end of the driveway. Adjust the painters in `src/art/environment.ts` and the scene `paintBackground` methods to match the photos more closely.
+`reference-images/` holds the overhead photo and the street-view photo of the house, driveway and backyard. They are not loaded by the game (nothing under that folder ships); they are the source the yard scenes were painted from:
+
+- The batter stands at the street end of the long driveway, the house (white siding, blue shutters) on the left, the evergreen hedge on the right and across the back of the yard, and the backyard opening up and to the left. Fair territory is the wedge toward that back-left corner; the hedge is the home run line and is drawn at childhood height (jumpable, with gaps).
+- Hockey and HORSE use the same driveway and hedge.
+
+To push the art closer to the photos, edit the painters in `src/art/environment.ts` and each scene's `paintBackground` (derby also has `paintHouse`). Add new photos to the same folder.
