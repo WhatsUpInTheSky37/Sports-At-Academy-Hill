@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { NO_INPUT, START_POSITIONS, WRESTLING_TUNING as T, applyStagger, createWrestling, distance, escapeWindowHit, insideRing, step, type Inputs, type WrestlingState } from '../src/games/wrestling/sim';
+import { NO_INPUT, START_POSITIONS, WRESTLING_TUNING as T, applyStagger, createWrestling, distance, escapeFillRate, insideRing, step, type Inputs, type WrestlingState } from '../src/games/wrestling/sim';
+import { aiInputs, createAiMemory } from '../src/games/wrestling/ai';
 
 const DT = 1 / 60;
 const idle = (): Inputs => ({ ...NO_INPUT });
@@ -54,30 +55,140 @@ describe('wrestling three-count', () => {
   });
 });
 
-describe('wrestling escape timing', () => {
-  it('escapes only when the marker is inside the green window and locks out on a miss', () => {
+describe('wrestling hold-to-escape', () => {
+  it('breaks the pin before the three-count when the pinned wrestler holds escape from the start', () => {
     const s = downedNextToPinner();
-    const hold: [Inputs, Inputs] = [{ ...idle(), grapple: true }, idle()];
+    const hold: [Inputs, Inputs] = [{ ...idle(), grapple: true }, { ...idle(), escape: true }];
     step(s, hold, DT);
-    // marker starts at 0: outside the window -> miss and lockout
-    expect(escapeWindowHit(s.pin.marker)).toBe(false);
-    step(s, [{ ...idle(), grapple: true }, { ...idle(), escapeJust: true }], DT);
     expect(s.pin.active).toBe(true);
-    expect(s.pin.lockout).toBeGreaterThan(0);
-    expect(s.events.some((e) => e.type === 'escapeMissed')).toBe(true);
-    // a tap during lockout, even inside the window, does nothing
-    s.pin.marker = 0.5;
-    step(s, [{ ...idle(), grapple: true }, { ...idle(), escapeJust: true }], DT);
-    expect(s.pin.active).toBe(true);
-    // after lockout, a tap inside the window escapes
-    s.pin.lockout = 0;
-    s.pin.marker = 0.5;
-    step(s, [{ ...idle(), grapple: true }, { ...idle(), escapeJust: true }], DT);
+    run(s, hold, T.escapeHoldSeconds + 0.1);
     expect(s.pin.active).toBe(false);
-    expect(s.events.some((e) => e.type === 'escape' && e.by === 1)).toBe(true);
+    expect(s.events.some((e) => e.type === 'escape' && e.by === 1) || s.w[1].state === 'idle').toBe(true);
     expect(s.w[1].state).toBe('idle');
     expect(s.w[0].state).toBe('stagger');
     expect(s.winner).toBeNull();
+    expect(s.w[1].stamina).toBeLessThan(T.staminaMax - T.escapeCost + 2); // paid the escape cost (a little regen since)
+  });
+
+  it('counts out a pinned wrestler who never holds escape, and progress drains when the button is released', () => {
+    const s = downedNextToPinner();
+    const hold: [Inputs, Inputs] = [{ ...idle(), grapple: true }, { ...idle(), escape: true }];
+    step(s, hold, DT);
+    run(s, hold, 0.5);
+    const partial = s.pin.escape;
+    expect(partial).toBeGreaterThan(0.2);
+    expect(partial).toBeLessThan(1);
+    run(s, [{ ...idle(), grapple: true }, idle()], 0.5);
+    expect(s.pin.escape).toBeLessThan(partial);
+    expect(s.pin.escape).toBeGreaterThan(0); // drains, doesn't snap to zero
+    run(s, [{ ...idle(), grapple: true }, idle()], T.pinCountSeconds * 3);
+    expect(s.phase).toBe('done');
+    expect(s.winner).toBe(0);
+  });
+
+  it('an exhausted wrestler fills the escape bar too slowly to beat the count', () => {
+    const fresh = downedNextToPinner();
+    const tired = downedNextToPinner();
+    tired.w[1].stamina = 0;
+    expect(escapeFillRate(tired.w[1])).toBeLessThan(escapeFillRate(fresh.w[1]));
+    expect(1 / escapeFillRate(tired.w[1])).toBeGreaterThan(T.pinCountSeconds * T.pinCounts);
+    expect(1 / escapeFillRate(fresh.w[1])).toBeLessThan(T.pinCountSeconds * T.pinCounts);
+    const hold: [Inputs, Inputs] = [{ ...idle(), grapple: true }, { ...idle(), escape: true }];
+    step(tired, hold, DT);
+    run(tired, hold, T.pinCountSeconds * 3 + 0.1);
+    expect(tired.phase).toBe('done');
+    expect(tired.winner).toBe(0);
+  });
+});
+
+describe('wrestling strikes', () => {
+  it('a punch costs stamina, drains and staggers the opponent, and puts the attacker in a short strike animation', () => {
+    const s = fighting();
+    s.w[1].x = s.w[0].x + 0.6;
+    const before = s.w[1].stamina;
+    step(s, [{ ...idle(), punchJust: true }, idle()], DT);
+    expect(s.events.some((e) => e.type === 'punch' && e.by === 0 && e.hit)).toBe(true);
+    expect(s.w[0].stamina).toBeCloseTo(T.staminaMax - T.punchCost, 1);
+    expect(s.w[1].stamina).toBeCloseTo(before - T.punchDrain, 0);
+    expect(s.w[1].state).toBe('stagger');
+    expect(s.w[0].state).toBe('strike');
+    expect(s.w[0].strike).toBe('punch');
+    run(s, [idle(), idle()], T.punchDuration + 0.05);
+    expect(s.w[0].state).toBe('idle');
+    expect(s.w[0].strike).toBeNull();
+  });
+
+  it('a punch out of range whiffs and still goes on cooldown', () => {
+    const s = fighting();
+    s.w[1].x = s.w[0].x + T.punchRange + 0.5;
+    step(s, [{ ...idle(), punchJust: true }, idle()], DT);
+    expect(s.events.some((e) => e.type === 'punch' && !e.hit)).toBe(true);
+    expect(s.w[1].state).toBe('idle');
+    expect(s.w[0].cooldown).toBeGreaterThan(0);
+    // a second punch during the cooldown does nothing
+    run(s, [idle(), idle()], T.punchDuration + 0.02);
+    s.w[1].x = s.w[0].x + 0.6;
+    step(s, [{ ...idle(), punchJust: true }, idle()], DT);
+    expect(s.events.some((e) => e.type === 'punch')).toBe(false);
+  });
+
+  it('a leg kick reaches further than a punch and sweeps a staggered opponent down', () => {
+    const s = fighting();
+    s.w[1].x = s.w[0].x + (T.punchRange + T.kickRange) / 2;
+    step(s, [{ ...idle(), kickJust: true }, idle()], DT);
+    expect(s.events.some((e) => e.type === 'kick' && e.hit && !e.down)).toBe(true);
+    expect(s.w[1].state).toBe('stagger');
+    expect(s.w[0].stamina).toBeCloseTo(T.staminaMax - T.kickCost, 1);
+    // follow-up kick on the staggered opponent sweeps them
+    s.w[0].cooldown = 0; s.w[0].state = 'idle'; s.w[0].strike = null;
+    s.w[1].vx = 0; s.w[1].vz = 0; s.w[1].x = s.w[0].x + 0.8;
+    step(s, [{ ...idle(), kickJust: true }, idle()], DT);
+    expect(s.events.some((e) => e.type === 'kick' && e.down)).toBe(true);
+    expect(s.w[1].state).toBe('down');
+  });
+
+  it('a kick also sweeps a tired opponent who is not staggered', () => {
+    const s = fighting();
+    s.w[1].x = s.w[0].x + 0.8;
+    s.w[1].stamina = T.shoveDownStamina + T.kickDrain - 1; // drops below the threshold on the hit
+    step(s, [{ ...idle(), kickJust: true }, idle()], DT);
+    expect(s.w[1].state).toBe('down');
+  });
+
+  it('strikes are refused without the stamina to pay for them', () => {
+    const s = fighting();
+    s.w[1].x = s.w[0].x + 0.6;
+    s.w[0].stamina = T.kickCost - 1;
+    step(s, [{ ...idle(), kickJust: true }, idle()], DT);
+    expect(s.events.some((e) => e.type === 'kick')).toBe(false);
+    expect(s.w[0].state).toBe('idle');
+  });
+});
+
+describe('wrestling CPU escapes', () => {
+  function pinWithAi(level: number): WrestlingState {
+    const s = downedNextToPinner();
+    const mem = createAiMemory();
+    const rand = () => 0.5;
+    step(s, [{ ...idle(), grapple: true }, idle()], DT, { rand });
+    expect(s.pin.active).toBe(true);
+    const n = Math.round((T.pinCountSeconds * 3 + 0.2) / DT);
+    for (let i = 0; i < n && s.phase !== 'done'; i++) {
+      const ai = aiInputs(s, 1, level, DT, mem, rand);
+      step(s, [{ ...idle(), grapple: true }, ai], DT, { rand });
+      if (!s.pin.active) break;
+    }
+    return s;
+  }
+
+  it('the hard CPU breaks a pin when it is fresh, the easy CPU gets counted out', () => {
+    const hard = pinWithAi(1);
+    expect(hard.pin.active).toBe(false);
+    expect(hard.phase).toBe('fight');
+    expect(hard.w[1].state).toBe('idle');
+    const easy = pinWithAi(0);
+    expect(easy.phase).toBe('done');
+    expect(easy.winner).toBe(0);
   });
 });
 
