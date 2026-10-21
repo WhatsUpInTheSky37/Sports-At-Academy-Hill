@@ -119,6 +119,8 @@ export abstract class BaseGameScene extends Phaser.Scene {
     const bx = plateW / 2 + 46;
     this.hud.add(makeIconButton(this, W / 2 - bx, 50, '?', () => this.showHelp(), { radius: 32 }));
     this.hud.add(makeIconButton(this, W / 2 + bx, 50, 'II', () => this.pauseGame(), { radius: 32 }));
+    // Exit: always available, one tap plus a confirm so a stray touch can't lose a match.
+    this.hud.add(makeIconButton(this, W / 2 + bx + 76, 50, '✕', () => this.exitGame(), { radius: 32, color: 0x7a1f1f }));
     this.pauseKey = this.input.keyboard?.addKey(Phaser.Input.Keyboard.KeyCodes.ESC);
     this.pauseKey?.on('down', () => this.pauseGame());
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
@@ -146,6 +148,16 @@ export abstract class BaseGameScene extends Phaser.Scene {
     if (this.scene.isActive('HowToScene')) return;
     this.scene.launch('HowToScene', { gameId: this.gameId, parent: this.scene.key, mode: this.match.mode, onClose });
     this.scene.bringToTop('HowToScene');
+    this.scene.pause();
+  }
+
+  /** Ask, then leave the match and return to the main menu. */
+  protected exitGame(): void {
+    if (this.scene.isActive('ConfirmExitScene') || this.scene.isActive('ResultScene')) return;
+    if (this.scene.isActive('PauseScene')) this.scene.stop('PauseScene');
+    if (this.scene.isActive('HowToScene')) this.scene.stop('HowToScene');
+    this.scene.launch('ConfirmExitScene', { parent: this.scene.key });
+    this.scene.bringToTop('ConfirmExitScene');
     this.scene.pause();
   }
 
