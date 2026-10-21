@@ -2,6 +2,8 @@ import Phaser from 'phaser';
 import { GAME_H, GAME_W, GAME_ORDER, GAMES, THEME, isPortrait, type GameId } from '../core/constants';
 import { makeButton, displayStyle, textStyle, makeIconButton } from '../core/ui';
 import { Audio } from '../core/audio';
+import { purgeBackdrops } from '../core/BaseGameScene';
+import { purgeCharacterSheets } from '../art/characters';
 import { Storage } from '../core/storage';
 import { CHARACTERS } from '../core/characters';
 import { CharacterSprite } from '../art/characters';
@@ -15,6 +17,8 @@ export class MenuScene extends Phaser.Scene {
   create(): void {
     syncOrientation(this);
     watchOrientation(this);
+    purgeBackdrops(this);
+    purgeCharacterSheets(this, [Storage.settings.p1, Storage.settings.p2]);
     Audio.setMusicStyle('outdoor');
     const W = GAME_W, H = GAME_H, P = isPortrait();
     this.buildBackground();

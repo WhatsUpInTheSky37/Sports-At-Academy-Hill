@@ -6,7 +6,7 @@ import { recordResult, aiLevel } from './match';
 import { Storage } from './storage';
 import { Audio } from './audio';
 import { announce, bubble, displayStyle, makeIconButton } from './ui';
-import { buildCharacterTextures } from '../art/characters';
+import { buildCharacterTextures, purgeCharacterSheets } from '../art/characters';
 import { buildEquipmentTextures } from '../art/equipment';
 import { pick } from './characters';
 import { syncOrientation } from './layout';
@@ -60,6 +60,9 @@ export abstract class BaseGameScene extends Phaser.Scene {
   /** Subclasses call this at the start of create(). */
   protected setupShell(opts: { music?: 'outdoor' | 'basement' } = {}): void {
     syncOrientation(this);
+    // backdrops and pose sheets are big canvases; drop the ones this match does not need so memory never piles up
+    purgeBackdrops(this, `${this.gameId}-bg`);
+    purgeCharacterSheets(this, [this.players[0].character.id, this.players[1].character.id]);
     buildCharacterTextures(this);
     buildEquipmentTextures(this);
     Audio.setMusicStyle(opts.music ?? 'outdoor');
@@ -209,5 +212,14 @@ export abstract class BaseGameScene extends Phaser.Scene {
   /** Overlay scenes call this to restart the current game with the same match config. */
   restartMatch(): void {
     this.scene.restart({ match: this.match });
+  }
+}
+
+/** Remove cached backdrop textures (keys containing "-bg-"), optionally keeping one game's. */
+export function purgeBackdrops(scene: Phaser.Scene, keepPrefix?: string): void {
+  for (const key of scene.textures.getTextureKeys()) {
+    if (!key.includes('-bg-')) continue;
+    if (keepPrefix && key.startsWith(keepPrefix)) continue;
+    scene.textures.remove(key);
   }
 }

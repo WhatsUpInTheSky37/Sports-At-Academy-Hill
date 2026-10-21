@@ -17,7 +17,7 @@ async function run(label, viewport, hasTouch) {
   await page.evaluate(() => {
     const g = window.__game;
     const match = g.registry.get('__buildMatch')('PoolScene', 'single');
-    g.scene.getScenes(true).forEach((s) => g.scene.stop(s.scene.key));
+    g.scene.getScenes(false).filter((s) => s.scene.isActive() || s.scene.isPaused()).forEach((s) => g.scene.stop(s.scene.key));
     g.scene.start('PoolScene', { match });
   });
   await page.waitForTimeout(1500);
