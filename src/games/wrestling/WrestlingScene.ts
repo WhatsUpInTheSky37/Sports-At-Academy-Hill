@@ -385,7 +385,7 @@ export class WrestlingScene extends BaseGameScene {
     if (this.isAI(slot)) return aiInputs(this.state, slot, this.ai, dt, this.aiMem);
     const c = this.controls[slot];
     if (!c) return { ...NO_INPUT };
-    return { x: c.axis.x, y: c.axis.y, grapple: c.isDown('a'), grappleJust: c.justDown('a'), shoveJust: c.justDown('b'), escapeJust: c.justDown('c') };
+    return { x: c.axis.x, y: -c.axis.y, grapple: c.isDown('a'), grappleJust: c.justDown('a'), shoveJust: c.justDown('b'), escapeJust: c.justDown('c') };
   }
 
   private screenOf(slot: 0 | 1): { x: number; y: number } {
