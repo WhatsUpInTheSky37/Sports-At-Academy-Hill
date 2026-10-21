@@ -4,7 +4,8 @@ import { THEME } from '../../core/constants';
 import { Audio } from '../../core/audio';
 import { Meter, displayStyle, textStyle, makeButton, impact, confetti } from '../../core/ui';
 import { CharacterSprite } from '../../art/characters';
-import { createCanvas, paintCarpet, paintLamp, paintPanelWall, paintPoster, paintTreeSide, roundRect, shade, rng } from '../../art/environment';
+import { createCanvas } from '../../art/environment';
+import { paintCabinetHD, paintRoomHD } from './art';
 import { BOARD, aiTarget, checkouts, gaussian, scoreAt, targetLabel, targetPoint, type Hit } from './board';
 import { DEFAULT_DARTS_RULES, applyDart, createGame, dartsLeft, turnTotal, type DartsState } from './rules';
 
@@ -108,100 +109,7 @@ export class DartsScene extends BaseGameScene {
       const { canvas, ctx } = createCanvas(W, H);
       const floorY = P ? H - 360 : H - 200;
       const railY = floorY - (P ? 330 : 300);
-      // upper wall: warm tan plaster
-      const wg = ctx.createLinearGradient(0, 0, 0, railY);
-      wg.addColorStop(0, '#c9a476');
-      wg.addColorStop(1, '#e2c495');
-      ctx.fillStyle = wg;
-      ctx.fillRect(0, 0, W, railY);
-      // lower wainscot: wood panels
-      paintPanelWall(ctx, 0, railY, W, floorY - railY, '#7a4a2a');
-      ctx.fillStyle = '#5a3418';
-      ctx.fillRect(0, railY - 10, W, 16);
-      ctx.fillStyle = 'rgba(255,230,180,0.3)';
-      ctx.fillRect(0, railY - 10, W, 3);
-      // carpet
-      paintCarpet(ctx, 0, floorY, W, H - floorY, '#7a3c2e', 13);
-      const rr = rng(31);
-      ctx.strokeStyle = 'rgba(240,200,120,0.25)';
-      ctx.lineWidth = 2;
-      for (let x = 0; x < W; x += 70) {
-        for (let y = floorY + 20; y < H; y += 70) {
-          ctx.beginPath();
-          ctx.moveTo(x, y); ctx.lineTo(x + 35, y - 25); ctx.lineTo(x + 70, y); ctx.lineTo(x + 35, y + 25); ctx.closePath();
-          ctx.stroke();
-          if (rr() > 0.6) { ctx.fillStyle = 'rgba(40,90,60,0.18)'; ctx.fill(); }
-        }
-      }
-      // baseboard shadow
-      const sg = ctx.createLinearGradient(0, floorY, 0, floorY + 60);
-      sg.addColorStop(0, 'rgba(0,0,0,0.35)'); sg.addColorStop(1, 'rgba(0,0,0,0)');
-      ctx.fillStyle = sg;
-      ctx.fillRect(0, floorY, W, 60);
-      // Left: little bar with stools, trophies on a shelf
-      const barX = 0, barW = P ? 240 : 420;
-      ctx.fillStyle = '#4a2c16';
-      roundRect(ctx, barX - 20, floorY - 170, barW, 190, 12); ctx.fill();
-      ctx.fillStyle = '#8a5a34';
-      roundRect(ctx, barX - 20, floorY - 180, barW + 10, 22, 6); ctx.fill();
-      // bottles / glasses on the bar
-      ['#7a1f1f', '#2f6b3a', '#c89b3c'].forEach((c, i) => {
-        ctx.fillStyle = c;
-        roundRect(ctx, barX + 40 + i * 42, floorY - 232, 18, 54, 5); ctx.fill();
-        ctx.fillStyle = 'rgba(255,255,255,0.35)';
-        ctx.fillRect(barX + 44 + i * 42, floorY - 226, 4, 30);
-      });
-      for (let i = 0; i < (P ? 2 : 3); i++) {
-        const sx = barX + 70 + i * 120;
-        ctx.fillStyle = '#2f5d3a';
-        ctx.beginPath(); ctx.ellipse(sx, floorY + 20, 42, 16, 0, 0, Math.PI * 2); ctx.fill();
-        ctx.fillStyle = '#5a3a1e';
-        ctx.fillRect(sx - 6, floorY + 20, 12, 110);
-        ctx.fillStyle = 'rgba(0,0,0,0.25)';
-        ctx.beginPath(); ctx.ellipse(sx, floorY + 135, 40, 10, 0, 0, Math.PI * 2); ctx.fill();
-      }
-      // shelf with trophies
-      ctx.fillStyle = '#5a3418';
-      ctx.fillRect(20, railY - 150, P ? 200 : 300, 14);
-      for (let i = 0; i < (P ? 2 : 4); i++) {
-        const tx = 60 + i * 70;
-        ctx.fillStyle = '#e8b84a';
-        ctx.beginPath(); ctx.moveTo(tx - 14, railY - 200); ctx.lineTo(tx + 14, railY - 200); ctx.lineTo(tx + 6, railY - 165); ctx.lineTo(tx - 6, railY - 165); ctx.closePath(); ctx.fill();
-        ctx.fillRect(tx - 10, railY - 160, 20, 10);
-      }
-      // pictures on the wall (landscape only; the cabinet fills the wall in portrait)
-      if (!P) {
-        paintPoster(ctx, 120, 170, 150, 110, '#6b8e4e', 'ACADEMY HILL');
-        paintPoster(ctx, W - 300, 560, 120, 90, '#4e6b8e', 'GO TEAM');
-      }
-      // Right: window with autumn trees + curtains, lamp beneath
-      const winW = P ? 190 : 300, winH = P ? 150 : 260;
-      const winX = W - winW - (P ? 30 : 90), winY = P ? Math.round(this.boardC.y + this.boardC.r * 1.12 + 40) : 270;
-      const skyG = ctx.createLinearGradient(0, winY, 0, winY + winH);
-      skyG.addColorStop(0, '#7fb8ea'); skyG.addColorStop(1, '#e9d8a8');
-      ctx.fillStyle = skyG;
-      ctx.fillRect(winX, winY, winW, winH);
-      ctx.save();
-      ctx.beginPath(); ctx.rect(winX, winY, winW, winH); ctx.clip();
-      for (let i = 0; i < 4; i++) paintTreeSide(ctx, winX + 30 + i * winW * 0.3, winY + winH * 0.95, winH * 0.7, 50 + i);
-      ctx.fillStyle = 'rgba(230,140,50,0.45)';
-      ctx.fillRect(winX, winY + winH * 0.4, winW, winH * 0.6);
-      ctx.restore();
-      ctx.strokeStyle = '#f6efe0'; ctx.lineWidth = 10; ctx.strokeRect(winX, winY, winW, winH);
-      ctx.beginPath(); ctx.moveTo(winX + winW / 2, winY); ctx.lineTo(winX + winW / 2, winY + winH); ctx.moveTo(winX, winY + winH / 2); ctx.lineTo(winX + winW, winY + winH / 2); ctx.stroke();
-      // curtains (plaid-ish)
-      for (const cx of [winX - 40, winX + winW + 10]) {
-        ctx.fillStyle = '#a8352f';
-        ctx.fillRect(cx, winY - 20, 34, winH + 40);
-        ctx.strokeStyle = 'rgba(240,200,80,0.5)'; ctx.lineWidth = 3;
-        for (let y = winY - 10; y < winY + winH + 20; y += 28) { ctx.beginPath(); ctx.moveTo(cx, y); ctx.lineTo(cx + 34, y); ctx.stroke(); }
-      }
-      paintLamp(ctx, W - (P ? 110 : 200), floorY - 60, P ? 0.8 : 1);
-      // Ceiling light glow above the board
-      const g = ctx.createRadialGradient(W / 2, this.boardC.y, 40, W / 2, this.boardC.y, this.boardC.r * 2.4);
-      g.addColorStop(0, 'rgba(255,240,200,0.28)'); g.addColorStop(1, 'rgba(255,240,200,0)');
-      ctx.fillStyle = g;
-      ctx.fillRect(0, 0, W, H);
+      paintRoomHD(ctx, { W, H, P, floorY, railY, boardX: this.boardC.x, boardY: this.boardC.y, boardR: this.boardC.r });
       this.textures.addCanvas(key, canvas);
     }
     this.add.image(W / 2, H / 2, key).setDepth(0);
@@ -220,98 +128,7 @@ export class DartsScene extends BaseGameScene {
       const { canvas, ctx } = createCanvas(totalW, cabH + 40);
       const ox = doorW + cabW / 2; // board centre in canvas
       const oy = cabH / 2 + 20;
-      // cabinet back + doors
-      const wood = (x: number, y: number, w: number, h: number, base: string) => {
-        const g = ctx.createLinearGradient(x, y, x + w, y + h);
-        g.addColorStop(0, shade(base, 0.15)); g.addColorStop(0.5, base); g.addColorStop(1, shade(base, -0.25));
-        ctx.fillStyle = g;
-        roundRect(ctx, x, y, w, h, 14); ctx.fill();
-        ctx.strokeStyle = 'rgba(30,15,5,0.7)'; ctx.lineWidth = 4; ctx.stroke();
-        ctx.strokeStyle = 'rgba(0,0,0,0.12)'; ctx.lineWidth = 1;
-        for (let yy = y + 12; yy < y + h; yy += 18) { ctx.beginPath(); ctx.moveTo(x + 6, yy); ctx.lineTo(x + w - 6, yy + 3); ctx.stroke(); }
-      };
-      ctx.fillStyle = 'rgba(0,0,0,0.35)';
-      roundRect(ctx, 10, 30, totalW - 10, cabH, 14); ctx.fill();
-      wood(0, 20, doorW + 10, cabH, '#6e4122');
-      wood(totalW - doorW - 10, 20, doorW + 10, cabH, '#6e4122');
-      wood(doorW, 20, cabW, cabH, '#8a5330');
-      // chalkboards on the doors
-      for (const dx of [10, totalW - doorW]) {
-        ctx.fillStyle = '#1f2a22';
-        roundRect(ctx, dx + 14, 44, doorW - 28, cabH - 60, 8); ctx.fill();
-        ctx.strokeStyle = '#3a2a18'; ctx.lineWidth = 5; ctx.stroke();
-        ctx.fillStyle = '#d8d0c0';
-        ctx.fillRect(dx + 30, cabH - 30, 36, 8);
-        // hinges
-        ctx.fillStyle = '#c9a240';
-        ctx.fillRect(dx < totalW / 2 ? doorW + 2 : totalW - doorW - 12, cabH * 0.3, 10, 26);
-        ctx.fillRect(dx < totalW / 2 ? doorW + 2 : totalW - doorW - 12, cabH * 0.7, 10, 26);
-      }
-      // board backing (black surround)
-      ctx.fillStyle = '#111';
-      ctx.beginPath(); ctx.arc(ox, oy, r * (BOARD.boardR / BOARD.doubleOuterR), 0, Math.PI * 2); ctx.fill();
-      const k = r / BOARD.doubleOuterR;
-      const wedge = (i: number, r0: number, r1: number, fill: string) => {
-        const a0 = ((i * 18 - 9 - 90) * Math.PI) / 180;
-        const a1 = ((i * 18 + 9 - 90) * Math.PI) / 180;
-        ctx.beginPath();
-        ctx.arc(ox, oy, r1 * k, a0, a1);
-        ctx.arc(ox, oy, r0 * k, a1, a0, true);
-        ctx.closePath();
-        ctx.fillStyle = fill;
-        ctx.fill();
-      };
-      for (let i = 0; i < 20; i++) {
-        const dark = i % 2 === 0;
-        const single = dark ? '#1b1b1b' : '#efe3c4';
-        const ring = dark ? '#c62828' : '#2e7d32';
-        wedge(i, BOARD.outerBullR, BOARD.tripleInnerR, single);
-        wedge(i, BOARD.tripleInnerR, BOARD.tripleOuterR, ring);
-        wedge(i, BOARD.tripleOuterR, BOARD.doubleInnerR, single);
-        wedge(i, BOARD.doubleInnerR, BOARD.doubleOuterR, ring);
-      }
-      // sisal texture
-      ctx.save();
-      ctx.beginPath(); ctx.arc(ox, oy, BOARD.doubleOuterR * k, 0, Math.PI * 2); ctx.clip();
-      const rr = rng(44);
-      for (let i = 0; i < 2500; i++) {
-        ctx.fillStyle = rr() > 0.5 ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.08)';
-        const a = rr() * Math.PI * 2, d = rr() * BOARD.doubleOuterR * k;
-        ctx.fillRect(ox + Math.cos(a) * d, oy + Math.sin(a) * d, 2, 2);
-      }
-      ctx.restore();
-      // bulls
-      ctx.fillStyle = '#2e7d32';
-      ctx.beginPath(); ctx.arc(ox, oy, BOARD.outerBullR * k, 0, Math.PI * 2); ctx.fill();
-      ctx.fillStyle = '#c62828';
-      ctx.beginPath(); ctx.arc(ox, oy, BOARD.innerBullR * k, 0, Math.PI * 2); ctx.fill();
-      // wires
-      ctx.strokeStyle = '#c0c0c0';
-      ctx.lineWidth = Math.max(1, k * 1.0);
-      for (const rad of [BOARD.outerBullR, BOARD.innerBullR, BOARD.tripleInnerR, BOARD.tripleOuterR, BOARD.doubleInnerR, BOARD.doubleOuterR]) {
-        ctx.beginPath(); ctx.arc(ox, oy, rad * k, 0, Math.PI * 2); ctx.stroke();
-      }
-      for (let i = 0; i < 20; i++) {
-        const a = ((i * 18 - 9 - 90) * Math.PI) / 180;
-        ctx.beginPath();
-        ctx.moveTo(ox + Math.cos(a) * BOARD.outerBullR * k, oy + Math.sin(a) * BOARD.outerBullR * k);
-        ctx.lineTo(ox + Math.cos(a) * BOARD.doubleOuterR * k, oy + Math.sin(a) * BOARD.doubleOuterR * k);
-        ctx.stroke();
-      }
-      // numbers
-      ctx.fillStyle = '#f4f1e8';
-      ctx.font = `bold ${Math.round(k * 22)}px "Arial Black", Arial, sans-serif`;
-      ctx.textAlign = 'center';
-      ctx.textBaseline = 'middle';
-      const nr = (BOARD.doubleOuterR + BOARD.boardR) / 2 * k;
-      BOARD.segments.forEach((n, i) => {
-        const a = ((i * 18 - 90) * Math.PI) / 180;
-        ctx.fillText(String(n), ox + Math.cos(a) * nr, oy + Math.sin(a) * nr);
-      });
-      // outer wire ring
-      ctx.strokeStyle = '#8c8c8c';
-      ctx.lineWidth = 3;
-      ctx.beginPath(); ctx.arc(ox, oy, BOARD.boardR * k, 0, Math.PI * 2); ctx.stroke();
+      paintCabinetHD(ctx, { totalW, cabH, doorW, cabW, ox, oy, r });
       this.textures.addCanvas(key, canvas);
     }
     const img = this.add.image(0, 0, key).setDepth(10);
@@ -514,9 +331,10 @@ export class DartsScene extends BaseGameScene {
     this.handDart.setVisible(false);
     Audio.sfx('dart');
     impact(this, tx, ty, hit.multiplier === 3 ? 0xf5c518 : 0xffffff, 8, 320, 5);
-    const shadow = this.add.image(tx + 6, ty + 10, 'dart').setOrigin(0.5, 0).setScale(1.0).setAngle(20).setTint(0x000000).setAlpha(0.35).setDepth(310);
+    const shadow = this.add.image(tx + 5, ty + 7, 'dart').setOrigin(0.5, 0).setScale(1.0, 0.9).setAngle(26).setTint(0x000000).setAlpha(0.45).setDepth(310);
+    const contact = this.add.circle(tx, ty, 5, 0x000000, 0.4).setDepth(311);
     const stuck = this.add.image(tx, ty, 'dart').setOrigin(0.5, 0).setScale(1.0).setAngle(20).setDepth(320);
-    this.stuckDarts.push(shadow, stuck);
+    this.stuckDarts.push(shadow, contact, stuck);
     const before = this.state;
     // label
     const lbl = hit.points === 0 ? 'MISSED THE BOARD' : hit.multiplier === 3 ? `${hit.label}!` : hit.label === 'BULLSEYE' ? 'BULLSEYE!' : hit.label;
