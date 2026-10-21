@@ -134,7 +134,7 @@ export class PoolScene extends BaseGameScene {
       // shelves and the washer/dryer in the right corner
       const shW = P ? 160 : 240;
       paintShelfHD(ctx, W - shW - (P ? 10 : 40), wallBase - 330, shW, 330, 50);
-      if (!P) paintWasherDryer(ctx, W - shW - 250, wallBase - 104, 1);
+      if (!P) paintWasherDryer(ctx, 400, wallBase - 104, 1);
       // hanging green table lamp above the table
       ctx.strokeStyle = '#1a1a1a'; ctx.lineWidth = 4;
       ctx.beginPath(); ctx.moveTo(lampX, 0); ctx.lineTo(lampX, lampY - 60); ctx.stroke();
@@ -213,7 +213,7 @@ export class PoolScene extends BaseGameScene {
     pool.addColorStop(0, 'rgba(255,250,200,0.2)'); pool.addColorStop(0.6, 'rgba(255,250,200,0.05)'); pool.addColorStop(1, 'rgba(0,0,0,0.18)');
     ctx.fillStyle = pool;
     ctx.fillRect(0, 0, ctx.canvas.width, ctx.canvas.height);
-    ctx.strokeStyle = 'rgba(0,0,0,0.05)'; ctx.lineWidth = 1;
+    ctx.strokeStyle = 'rgba(0,0,0,0.035)'; ctx.lineWidth = 1;
     for (let i = 0; i <= 40; i++) {
       const t = i / 40;
       const a = { sx: cloth[3].sx + (cloth[0].sx - cloth[3].sx) * t, sy: cloth[3].sy + (cloth[0].sy - cloth[3].sy) * t };

@@ -194,8 +194,8 @@ export class WrestlingScene extends BaseGameScene {
       ctx.fillStyle = '#eee'; ctx.font = `bold ${Math.round(0.11 * ss)}px Arial`; ctx.textAlign = 'center';
       ctx.fillText('CURTAINS', sp.sx + 0.08 * ss, sp.sy - 1.25 * ss);
       if (!this.portrait) {
-        const wd = pr.project(2.2, 0, wz - 0.05);
-        paintWasherDryer(ctx, wd.sx, wd.sy - 1.0 * wd.scale, wd.scale / 100);
+        const wd = pr.project(-3.95, 0, wz - 0.05);
+        paintWasherDryer(ctx, wd.sx, wd.sy - 0.8 * wd.scale, wd.scale / 125);
       }
       // folding chair with the belt
       const ch = pr.project(this.portrait ? 2.1 : 2.7, 0, 2.2);
