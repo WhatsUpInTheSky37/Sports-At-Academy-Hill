@@ -83,7 +83,9 @@ function woodGrain(ctx: CanvasRenderingContext2D, x: number, y: number, w: numbe
 export function buildEquipmentTextures(scene: Phaser.Scene): void {
   // ---------------- Baseball ----------------
   {
-    const { canvas, ctx } = createCanvas(40, 40);
+    // drawn at 2x (80 px) so the ball stays crisp at the plate; scenes scale by px / 80
+    const { canvas, ctx } = createCanvas(80, 80);
+    ctx.scale(2, 2);
     const cx = 20, cy = 20, r = 18.5;
     sphere(ctx, cx, cy, r, '#f3efe3', { highlight: 0.25 });
     // leather grain
@@ -313,7 +315,9 @@ export function buildEquipmentTextures(scene: Phaser.Scene): void {
   }
   // ---------------- Bat (horizontal, handle at left) ----------------
   {
-    const { canvas, ctx } = createCanvas(180, 26);
+    // drawn at 4x (720 x 104) because the batter's bat fills a good part of the screen; display at scale / 4
+    const { canvas, ctx } = createCanvas(720, 104);
+    ctx.scale(4, 4);
     const body = () => {
       ctx.beginPath();
       ctx.moveTo(14, 9.5); ctx.lineTo(60, 8); ctx.quadraticCurveTo(140, 0.5, 176, 3.5); ctx.quadraticCurveTo(180, 13, 176, 22.5); ctx.quadraticCurveTo(140, 25.5, 60, 18); ctx.lineTo(14, 16.5); ctx.closePath();

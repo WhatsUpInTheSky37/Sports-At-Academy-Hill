@@ -275,7 +275,7 @@ export class DartsScene extends BaseGameScene {
     const waiting = t === 0 ? 1 : 0;
     if (this.opponent.character.id !== this.players[waiting].character.id) {
       const { x, y } = this.opponent;
-      const sc = this.opponent.sprite.scale;
+      const sc = this.opponent.charScale;
       this.opponent.destroy();
       this.opponent = new CharacterSprite(this, x, y, this.players[waiting].character, sc);
       this.opponent.setDepth(60).idle().setFacing(1);

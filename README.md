@@ -54,7 +54,7 @@ The smoke and playthrough scripts open `?renderer=canvas`, a URL switch that for
 
 | Game | Keyboard (P1) | Keyboard (P2) | Touch |
 | --- | --- | --- | --- |
-| Home Run Derby | WASD/arrows move the aim reticle, SPACE/F swing | ENTER or `,` swing (turns alternate) | Drag on the field to aim, tap SWING |
+| Home Run Derby | WASD/arrows move the aim reticle, SPACE/F swing (or click the ball in TAP HIT mode) | ENTER or `,` swing (turns alternate) | TAP HIT: tap the ball as it crosses the plate. CLASSIC: drag to aim, tap SWING. SWITCH button in-game or in Settings |
 | HORSE | Click a chalk spot, A/D fine aim, hold/release SPACE for power | same, turns alternate | Tap spot, drag to aim, hold/release SHOOT |
 | Billiards | Drag to aim, A/D fine aim, SPACE shoot | same, turns alternate | Drag to aim, drag/hold power bar |
 | Wrestling | WASD move, F grapple/pin, G shove/takedown, H escape | Arrows, `,` grapple/pin, `.` shove, `/` escape | Stick + GRAB / SHOVE / ESC |
@@ -64,7 +64,7 @@ The smoke and playthrough scripts open `?renderer=canvas`, a URL switch that for
 
 ### Rules and simplifications
 
-- **Derby:** automatic hittable pitches; swing timing (Early / Perfect / Late) sets direction and contact, the aim reticle sets loft (aim under the ball for a fly ball). The batter faces the backyard with the evergreen line wrapping around three sides; a fair ball that clears the trees wherever it crosses the line is a home run; miss, foul, or short is an out; taking a pitch is free. 10 outs each, then 3-out tiebreak rounds until someone leads.
+- **Derby:** automatic hittable pitches; swing timing (Early / Perfect / Late) sets direction and contact, the aim point sets loft (aim under the ball for a fly ball). Two batting modes: TAP HIT (one tap on the ball when it arrives: where you tap is where the bat meets it) and CLASSIC (aim reticle plus SWING button). Fair territory is a regulation 90-degree wedge whose foul lines start at the back point of home plate. The batter faces the backyard with the evergreen line wrapping around three sides; a fair ball that clears the trees wherever it crosses the line is a home run; miss, foul, or short is an out; taking a pitch is free. 10 outs each, then 3-out tiebreak rounds until someone leads.
 - **HORSE:** setter picks a spot and shoots; a make must be matched from the same spot or the matcher earns a letter. Setter miss hands over the setter role. Five letters loses.
 - **Billiards:** casual eight-ball (open table after the break, groups on the first legal pocketed ball, fouls give ball in hand anywhere, called pocket for the 8, 8 on the break is respotted, illegal break lets the opponent accept or rerack). No jump/masse shots, no three-foul rule.
 - **Wrestling:** cartoon grappling in a couch-cushion ring. Three-count pins with a timed escape window (no mashing). Stepping out resets both wrestlers.
@@ -112,4 +112,4 @@ If you drop `logo.png` into `public/`, the title screen uses it; otherwise the t
 - The batter stands at the street end of the long driveway, the house (white siding, blue shutters) on the left, the evergreen hedge on the right and across the back of the yard, and the backyard opening up and to the left. Fair territory is the wedge toward that back-left corner; the hedge is the home run line and is drawn at childhood height (jumpable, with gaps).
 - Hockey and HORSE use the same driveway and hedge.
 
-To push the art closer to the photos, edit the painters in `src/art/environment.ts` and each scene's `paintBackground` (derby also has `paintHouse`). Add new photos to the same folder.
+To push the art closer to the photos, edit the painters in `src/art/environment.ts` and each scene's `paintBackground` (derby has `paintDiamond`, `paintHedgeShadows` and friends, rasterised at 2x). Add new photos to the same folder.

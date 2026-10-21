@@ -94,7 +94,7 @@ export class SetupScene extends Phaser.Scene {
         const other = slot === 0 ? this.p2 : this.p1;
         const taken = cid === other;
         const ring = add(this.add.circle(bx, by, 46, on ? THEME.accent : THEME.panelLight, 1).setStrokeStyle(4, on ? 0xffffff : CHARACTERS[cid].accent));
-        const img = add(this.add.image(bx, by, `portrait-${cid}`).setScale(0.66).setAlpha(taken ? 0.3 : 1));
+        const img = add(this.add.image(bx, by, `portrait-${cid}`).setScale(0.33).setAlpha(taken ? 0.3 : 1));
         add(this.add.text(bx, by + 52, CHARACTERS[cid].name, textStyle(18, taken ? THEME.textDim : '#ffffff')).setOrigin(0.5, 0));
         const choose = () => { if (taken) return; Audio.sfx('click'); if (slot === 0) this.p1 = cid; else this.p2 = cid; this.render(); };
         ring.setInteractive({ useHandCursor: true }).on('pointerup', choose);

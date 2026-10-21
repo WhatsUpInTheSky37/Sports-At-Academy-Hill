@@ -11,6 +11,8 @@ export interface Settings {
   p1: CharacterId;
   p2: CharacterId;
   touch: 'auto' | 'on' | 'off';
+  /** Derby batting: 'tap' = tap where the ball is when it arrives; 'classic' = aim reticle + SWING button. */
+  derbyHitMode: 'tap' | 'classic';
   seenHowTo: Partial<Record<GameId, boolean>>;
 }
 
@@ -39,6 +41,7 @@ export const DEFAULT_SETTINGS: Settings = {
   p1: 'will',
   p2: 'vinnie',
   touch: 'auto',
+  derbyHitMode: 'tap',
   seenHowTo: {},
 };
 

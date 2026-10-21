@@ -744,11 +744,11 @@ export class HorseScene extends BaseGameScene {
     if (r.made) {
       this.announce(banked ? 'BANK! GOOD!' : rimmed ? "IT'S GOOD!" : 'SWISH!', { color: '#f5c518', size: this.portrait ? 70 : 84, y: ay });
       confetti(this, W / 2, ay, 30);
-      this.react(slot, 'cheer', this.shooter.x, Math.max(this.fieldTop + 120, this.shooter.y - 230 * this.shooter.sprite.scale));
+      this.react(slot, 'cheer', this.shooter.x, Math.max(this.fieldTop + 120, this.shooter.y - 230 * this.shooter.charScale));
     } else {
       const why = r.events.some((e) => e.kind === 'backboard') ? 'OFF THE BOARD' : rimmed ? 'RIMS OUT' : 'AIRBALL';
       this.announce(`${why} — MISS`, { color: '#ef5350', size: this.portrait ? 54 : 66, y: ay });
-      if (Math.random() < 0.5) this.react(slot, 'groan', this.shooter.x, Math.max(this.fieldTop + 120, this.shooter.y - 230 * this.shooter.sprite.scale));
+      if (Math.random() < 0.5) this.react(slot, 'groan', this.shooter.x, Math.max(this.fieldTop + 120, this.shooter.y - 230 * this.shooter.charScale));
     }
     this.refreshHud();
     let delay = HORSE_VISUAL.resultHoldMs;
@@ -850,7 +850,7 @@ export class HorseScene extends BaseGameScene {
   /** Before the wind-up the ball is tucked at the chest (hidden from behind); during the meter it is raised overhead. */
   private placeHeldBall(): void {
     if (this.phase === 'meter') {
-      const sc = this.shooter.sprite.scale;
+      const sc = this.shooter.charScale;
       const sp = SPOTS[this.spotIndex];
       const depthScale = this.proj.project(sp.x, 0, sp.z).scale;
       const px = Math.max(14, HORSE_VISUAL.ballDiameter * depthScale);

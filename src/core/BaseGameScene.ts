@@ -89,7 +89,7 @@ export abstract class BaseGameScene extends Phaser.Scene {
       g.strokeRoundedRect(px, panelY, panelW, 112, 18);
       this.hud.add(g);
       this.panelRects.push(new Phaser.Geom.Rectangle(px, panelY, panelW, 112));
-      const portrait = this.add.image(px + 62, panelY + 56, `portrait-${p.character.id}`).setScale(0.72);
+      const portrait = this.add.image(px + 62, panelY + 56, `portrait-${p.character.id}`).setScale(0.36);
       const ring = this.add.circle(px + 62, panelY + 56, 44).setStrokeStyle(5, p.character.accent);
       const marker = this.add.graphics();
       marker.fillStyle(THEME.accent, 1);

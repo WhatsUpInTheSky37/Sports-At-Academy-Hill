@@ -23,7 +23,7 @@ export class RecordsScene extends Phaser.Scene {
     const top = 150;
     this.add.text(colX[0], top + 20, 'Game', displayStyle(24, '#f5c518', { strokeThickness: 0 })).setOrigin(0, 0.5);
     CHARACTER_IDS.forEach((id, i) => {
-      this.add.image(colX[i + 1], top + 10, `portrait-${id}`).setScale(0.45);
+      this.add.image(colX[i + 1], top + 10, `portrait-${id}`).setScale(0.225);
       this.add.text(colX[i + 1], top + 40, CHARACTERS[id].name, textStyle(18, THEME.textDim)).setOrigin(0.5, 0);
     });
     const rowH = P ? 80 : 62;

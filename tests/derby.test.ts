@@ -134,6 +134,18 @@ describe('derby batting', () => {
     expect(['short', 'trees', 'popup', 'foul']).toContain(f.reason);
   });
 
+  it('fair territory is a regulation 90-degree wedge from the plate', () => {
+    expect(DEFAULT_BATTING.fairAngleDeg).toBe(45);
+    // a ball just inside the line is fair, just outside is foul
+    const inside = computeContact(0, 0, 0);
+    expect(inside.fair).toBe(true);
+    const edge = (DEFAULT_BATTING.fairAngleDeg - 1) / DEFAULT_BATTING.maxPullDeg * DEFAULT_BATTING.maxContactMs;
+    expect(computeContact(edge, 0, 0).fair).toBe(true);
+    const over = (DEFAULT_BATTING.fairAngleDeg + 2) / DEFAULT_BATTING.maxPullDeg * DEFAULT_BATTING.maxContactMs;
+    expect(computeContact(over, 0, 0).fair).toBe(false);
+    expect(computeContact(-over, 0, 0).fair).toBe(false);
+  });
+
   it('early swings pull left and late swings push right of the fair centre', () => {
     expect(computeContact(-120, 0, 0).directionDeg).toBeLessThan(DEFAULT_BATTING.fairCenterDeg);
     expect(computeContact(120, 0, 0).directionDeg).toBeGreaterThan(DEFAULT_BATTING.fairCenterDeg);
