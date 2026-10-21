@@ -120,10 +120,10 @@ export class HockeyScene extends BaseGameScene {
       paintSkyHD(ctx, W, H, horizon + 2, { sunX: W * 0.68, sunY: horizon * 0.3 });
       // hazy woods beyond the far hedge
       const woods: { x: number; z: number; s: number; seed: number }[] = [];
-      for (let i = 0; i < 44; i++) woods.push({ x: -80 + i * 3.9 + r() * 2.5, z: farZ + 12 + r() * 36, s: 6.5 + r() * 6, seed: 100 + i });
+      for (let i = 0; i < 60; i++) woods.push({ x: -120 + i * 4.2 + r() * 2.5, z: farZ + 28 + r() * 50, s: 7 + r() * 6, seed: 100 + i });
       woods.sort((a, b) => b.z - a.z).forEach((t) => {
         const p = P(t.x, 0, t.z);
-        const haze = Math.min(0.8, 0.3 + (t.z - farZ) / 60);
+        const haze = Math.min(0.85, 0.4 + (t.z - farZ) / 90);
         if (t.seed % 3 === 0) paintPineHD(ctx, p.sx, p.sy, t.s * 1.3 * p.scale, t.seed, { haze });
         else paintTreeHD(ctx, p.sx, p.sy, t.s * p.scale, t.seed, { haze });
       });
@@ -170,21 +170,24 @@ export class HockeyScene extends BaseGameScene {
       const s0 = P(0.12, 0, nearZ), s1 = P(0.12, 0, farZ);
       ctx.strokeStyle = 'rgba(0,0,0,0.3)'; ctx.lineWidth = 2;
       ctx.beginPath(); ctx.moveTo(s0.sx, s0.sy); ctx.lineTo(s1.sx, s1.sy); ctx.stroke();
-      // grass creeping into the cracks, like the real driveway
-      for (let z = 0.5; z < cfg.rinkL; z += 1.4 + r() * 2.2) {
-        const ga = P(-cfg.rinkW / 2 + r() * 1.2, 0, z), gb = P(cfg.rinkW / 2 - r() * 1.2, 0, z + (r() - 0.5) * 0.5);
-        ctx.strokeStyle = 'rgba(105,160,65,0.55)';
-        ctx.lineWidth = Math.max(1, 0.03 * ga.scale);
-        ctx.beginPath(); ctx.moveTo(ga.sx, ga.sy); ctx.lineTo(gb.sx, gb.sy); ctx.stroke();
-        // little tufts along the seam
-        const n = Math.floor(3 + r() * 4);
-        for (let k = 0; k < n; k++) {
-          const t = r();
-          const tx = ga.sx + (gb.sx - ga.sx) * t, ty = ga.sy + (gb.sy - ga.sy) * t;
-          const bl = Math.min(14, 0.08 * ga.scale);
-          if (bl < 1.5) continue;
-          ctx.strokeStyle = 'rgba(150,200,90,0.6)'; ctx.lineWidth = 1.2;
-          ctx.beginPath(); ctx.moveTo(tx, ty); ctx.quadraticCurveTo(tx + (r() - 0.5) * bl * 0.5, ty - bl * 0.6, tx + (r() - 0.5) * bl, ty - bl); ctx.stroke();
+      // grass creeping into the cracks, like the real driveway: broken seams with small tufts
+      for (let z = 0.5; z < cfg.rinkL; z += 1.6 + r() * 2.4) {
+        const segs = 2 + Math.floor(r() * 3);
+        for (let sgi = 0; sgi < segs; sgi++) {
+          const x0 = -cfg.rinkW / 2 + r() * cfg.rinkW, len = 0.6 + r() * 1.8;
+          const ga = P(x0, 0, z + (r() - 0.5) * 0.3), gb = P(Math.min(cfg.rinkW / 2, x0 + len), 0, z + (r() - 0.5) * 0.3);
+          ctx.strokeStyle = 'rgba(95,150,60,0.4)';
+          ctx.lineWidth = Math.max(1, 0.025 * ga.scale);
+          ctx.beginPath(); ctx.moveTo(ga.sx, ga.sy); ctx.lineTo(gb.sx, gb.sy); ctx.stroke();
+          const n = Math.floor(2 + r() * 4);
+          for (let k = 0; k < n; k++) {
+            const t = r();
+            const tx = ga.sx + (gb.sx - ga.sx) * t, ty = ga.sy + (gb.sy - ga.sy) * t;
+            const bl = Math.min(12, 0.07 * ga.scale);
+            if (bl < 1.5) continue;
+            ctx.strokeStyle = 'rgba(140,195,85,0.55)'; ctx.lineWidth = 1.2;
+            ctx.beginPath(); ctx.moveTo(tx, ty); ctx.quadraticCurveTo(tx + (r() - 0.5) * bl * 0.5, ty - bl * 0.6, tx + (r() - 0.5) * bl, ty - bl); ctx.stroke();
+          }
         }
       }
       // worn grey edge where the driveway meets the lawn
@@ -283,16 +286,21 @@ export class HockeyScene extends BaseGameScene {
       const lamp = P(hx, 2.6, doorZ + 0.45);
       ctx.fillStyle = '#ffe9a8';
       ctx.beginPath(); ctx.arc(lamp.sx, lamp.sy, Math.max(2, 0.08 * lamp.scale), 0, Math.PI * 2); ctx.fill();
-      // shrub row along the foundation (small round shrubs, perspective sized)
-      for (let z = hz0 + 0.6; z < hz1; z += 1.3) {
-        const p = P(hx + 0.55, 0, z);
+      // low clipped shrubs along the foundation (no trunks), perspective sized
+      for (let z = hz0 + 0.6; z < hz1; z += 1.1) {
+        const p = P(hx + 0.6, 0, z);
         if (!p.visible) continue;
-        paintTreeHD(ctx, p.sx, p.sy + 0.35 * p.scale, 1.05 * p.scale, 400 + Math.round(z * 10));
-      }
-      // a few far trees peeking over the house roof
-      for (let i = 0; i < 6; i++) {
-        const p = P(backX - 2 - i * 2, 0, hz1 + 6 + r() * 6);
-        paintTreeHD(ctx, p.sx, p.sy, 7 * p.scale, 700 + i, { haze: 0.35 });
+        const sw = 0.5 * p.scale, sh = 0.42 * p.scale;
+        ctx.fillStyle = 'rgba(0,0,0,0.22)';
+        ctx.beginPath(); ctx.ellipse(p.sx + sw * 0.2, p.sy + 2, sw * 1.1, sh * 0.2, 0, 0, Math.PI * 2); ctx.fill();
+        for (let k = 0; k < 4; k++) {
+          const bx = p.sx + (k - 1.5) * sw * 0.45, by = p.sy - sh * (0.55 + (k % 2) * 0.25);
+          const br = sw * (0.45 + r() * 0.15);
+          const g = ctx.createRadialGradient(bx - br * 0.4, by - br * 0.4, br * 0.05, bx, by, br);
+          g.addColorStop(0, '#9fd25a'); g.addColorStop(0.55, '#4f9233'); g.addColorStop(1, '#1f4d1d');
+          ctx.fillStyle = g;
+          ctx.beginPath(); ctx.arc(bx, by, br, 0, Math.PI * 2); ctx.fill();
+        }
       }
       paintVignette(ctx, W, H, 0.22);
       this.textures.addCanvas(key, canvas);
