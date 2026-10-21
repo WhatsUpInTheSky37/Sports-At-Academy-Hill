@@ -1,5 +1,8 @@
-# Builds the game and publishes dist/ to GitHub Pages on every push to main.
-# One-time setup: in the repository Settings -> Pages, set "Source" to "GitHub Actions".
+# Builds the game on every push to main and publishes it two ways, so the site works whichever
+# Pages source the repository is set to:
+#   1. commits the production build to the repository root (index.html + assets/), which is what
+#      "Deploy from a branch" (main, /) serves;
+#   2. deploys dist/ through the Pages Actions API, which is what "GitHub Actions" serves.
 name: Deploy to GitHub Pages
 
 on:
@@ -8,13 +11,13 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
   pages: write
   id-token: write
 
 concurrency:
   group: pages
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 jobs:
   build:
@@ -28,6 +31,19 @@ jobs:
       - run: npm ci
       - run: npm test
       - run: npm run build
+      - name: Publish the build to the repository root
+        run: |
+          rm -rf assets
+          cp -r dist/assets assets
+          cp dist/index.html index.html
+          touch .nojekyll
+          git add -A assets index.html .nojekyll
+          if git diff --cached --quiet; then
+            echo "Build output unchanged"
+          else
+            git -c user.name="github-actions[bot]" -c user.email="41898282+github-actions[bot]@users.noreply.github.com" commit -m "Publish production build [skip ci]"
+            git push
+          fi
       - uses: actions/upload-pages-artifact@v3
         with:
           path: dist
