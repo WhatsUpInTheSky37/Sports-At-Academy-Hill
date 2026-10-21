@@ -5,7 +5,8 @@ import { Projector } from '../../core/projection';
 import { Audio } from '../../core/audio';
 import { Meter, displayStyle, textStyle, makeButton, makePanel, makeDim, confetti } from '../../core/ui';
 import { CharacterSprite } from '../../art/characters';
-import { createCanvas, paintConcrete, paintCouchFront, paintLamp, paintPennant, paintPoster, roundRect, shade, rng } from '../../art/environment';
+import { createCanvas, paintLamp, roundRect, shade, rng } from '../../art/environment';
+import { paintBraidedRug, paintCinderWallHD, paintConcreteHD, paintCouchHD, paintJoists, paintPennantHD, paintPipes, paintPosterHD, paintRoomGrade, paintShelfHD, paintStairsHD, paintWasherDryer } from './basementArt';
 import { DEFAULT_POOL, PoolSim, aimGuide, canPlace, headSpot, pockets, type Ball, type PoolConfig } from './physics';
 import { applyShotResult, callPocket, chooseGroup, createGame, groupOf, needsCall, onTheEight, placeCueBall, remaining, resolveIllegalBreak, POCKET_NAMES, type PoolGameState } from './rules';
 import { chooseShot, choosePlacement, nearestPocketToEight } from './ai';
@@ -71,7 +72,6 @@ export class PoolScene extends BaseGameScene {
     this.fieldBottom = P ? H - 290 : H - 165;
     this.buildCamera();
     this.paintBackdrop();
-    this.drawTable();
     this.state = createGame(0, this.cfg);
     this.guide = this.add.graphics().setDepth(300);
     this.pocketMarks = this.add.graphics().setDepth(250);
@@ -113,159 +113,157 @@ export class PoolScene extends BaseGameScene {
     if (!this.textures.exists(key)) {
       const { canvas, ctx } = createCanvas(W, H);
       const wallBase = this.fieldTop + (P ? 90 : 40);
-      const ceiling = 0;
-      // cinder-block wall
-      const wg = ctx.createLinearGradient(0, ceiling, 0, wallBase);
-      wg.addColorStop(0, '#4a4036');
-      wg.addColorStop(0.35, '#8a7f70');
-      wg.addColorStop(1, '#a89c8a');
-      ctx.fillStyle = wg;
-      ctx.fillRect(0, ceiling, W, wallBase - ceiling);
-      ctx.strokeStyle = 'rgba(40,30,20,0.28)';
-      ctx.lineWidth = 2;
-      const bh = 34, bw = 82;
-      for (let y = wallBase; y > 60; y -= bh) {
-        ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(W, y); ctx.stroke();
-        const off = (Math.round((wallBase - y) / bh) % 2) * (bw / 2);
-        for (let x = off; x < W; x += bw) { ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo(x, y - bh); ctx.stroke(); }
-      }
-      // ceiling joists
-      ctx.fillStyle = '#3b2a1c';
-      for (let x = 20; x < W; x += 170) { ctx.fillRect(x, 0, 26, 70); }
-      ctx.fillStyle = 'rgba(0,0,0,0.35)';
-      ctx.fillRect(0, 0, W, 10);
-      // pipes
-      ctx.strokeStyle = '#6f7378'; ctx.lineWidth = 10;
-      ctx.beginPath(); ctx.moveTo(0, 90); ctx.lineTo(W, 96); ctx.stroke();
-      ctx.strokeStyle = '#8a8d90'; ctx.lineWidth = 4;
-      ctx.beginPath(); ctx.moveTo(0, 86); ctx.lineTo(W, 92); ctx.stroke();
-      // floor (concrete) with a rug
-      paintConcrete(ctx, 0, wallBase, W, H - wallBase, 31);
-      const fg = ctx.createLinearGradient(0, wallBase, 0, H);
-      fg.addColorStop(0, 'rgba(0,0,0,0.25)');
-      fg.addColorStop(1, 'rgba(0,0,0,0.05)');
-      ctx.fillStyle = fg;
-      ctx.fillRect(0, wallBase, W, H - wallBase);
-      ctx.fillStyle = '#7a3b2e';
-      ctx.beginPath(); ctx.ellipse(W * 0.12, wallBase + 70, 150, 34, 0, 0, Math.PI * 2); ctx.fill();
-      ctx.strokeStyle = '#c99a6b'; ctx.lineWidth = 4; ctx.beginPath(); ctx.ellipse(W * 0.12, wallBase + 70, 120, 26, 0, 0, Math.PI * 2); ctx.stroke();
+      const joistH = Math.max(60, wallBase * 0.14);
+      const lampX = W / 2, lampY = this.fieldTop - (P ? 60 : 30);
+      // walls, joists, pipes
+      paintCinderWallHD(ctx, 0, joistH - 6, W, wallBase - joistH + 6, { seed: 41, lights: [{ x: lampX, y: lampY + 120, r: W * 0.55, strength: 0.3 }, { x: W * 0.18, y: wallBase - 120, r: 420, strength: 0.25 }] });
+      paintJoists(ctx, 0, 0, W, joistH, P ? 150 : 180);
+      paintPipes(ctx, 0, W, joistH + 18, { copper: true, thickness: 9 });
+      paintPipes(ctx, 0, W, joistH + 40, { thickness: 14 });
+      // floor
+      paintConcreteHD(ctx, 0, wallBase, W, H - wallBase, 31);
+      paintBraidedRug(ctx, W * 0.12, wallBase + 80, P ? 120 : 170, P ? 34 : 44, 7);
       // stairs on the left
-      const sx0 = P ? -40 : 40;
-      const stepW = P ? 150 : 200;
-      for (let i = 0; i < 7; i++) {
-        const y = wallBase - 30 - i * 42;
-        ctx.fillStyle = shade('#8a5a3a', -0.1 - i * 0.03);
-        ctx.fillRect(sx0 + i * 18, y - 20, stepW, 22);
-        ctx.fillStyle = shade('#8a5a3a', 0.15);
-        ctx.fillRect(sx0 + i * 18, y - 24, stepW, 6);
-      }
-      ctx.fillStyle = '#5a3a22';
-      ctx.fillRect(sx0 + stepW + 10, wallBase - 330, 10, 320);
-      ctx.fillRect(sx0 + 120, wallBase - 330, stepW, 10);
-      // couch on the far wall, lamp, poster, pennant, shelves
+      paintStairsHD(ctx, P ? -60 : 30, wallBase - 6, P ? 130 : 180, 7, 1);
+      // couch on the far wall, lamp, poster, pennant
       const cw = Math.min(520, W * 0.32);
-      paintCouchFront(ctx, W / 2 - cw / 2, wallBase - 150, cw, 150, '#3f6a4a');
+      paintCouchHD(ctx, W / 2 - cw / 2, wallBase - 150, cw, 150, '#4f6a46');
       paintLamp(ctx, W / 2 + cw / 2 + 90, wallBase - 70, 1);
-      paintPoster(ctx, W / 2 + cw / 2 + 170, wallBase - 330, 150, 110, '#2e4a7a', 'ACADEMY');
-      paintPennant(ctx, W / 2 - cw / 2 - 260, wallBase - 330, 200, 70, '#f5c518', 'ACADEMY HILL');
-      // shelves on the right
-      const shX = W - (P ? 160 : 260);
-      ctx.fillStyle = '#6b4a2e';
-      ctx.fillRect(shX, wallBase - 320, P ? 150 : 220, 320);
-      for (let i = 0; i < 4; i++) {
-        ctx.fillStyle = '#9c7a52';
-        ctx.fillRect(shX + 6, wallBase - 300 + i * 80, (P ? 150 : 220) - 12, 10);
-        const r = rng(50 + i);
-        for (let k = 0; k < 3; k++) {
-          ctx.fillStyle = ['#c9c2b4', '#4a7fb8', '#b85a3a', '#e0d4a8'][Math.floor(r() * 4)];
-          ctx.fillRect(shX + 14 + k * 58, wallBase - 300 + i * 80 - 40, 44, 40);
-        }
-      }
-      // hanging table lamp (green shade) above the table
-      const lx = W / 2, ly = this.fieldTop - (P ? 60 : 30);
-      ctx.strokeStyle = '#2a2a2a'; ctx.lineWidth = 4;
-      ctx.beginPath(); ctx.moveTo(lx, 0); ctx.lineTo(lx, ly - 60); ctx.stroke();
-      const lg = ctx.createLinearGradient(lx - 200, ly - 60, lx + 200, ly);
-      lg.addColorStop(0, '#1f5a2a'); lg.addColorStop(0.5, '#3f9a4a'); lg.addColorStop(1, '#174520');
+      paintPosterHD(ctx, W / 2 + cw / 2 + 170, wallBase - 340, 160, 120, '#2e4a7a', ['ACADEMY', 'HILL']);
+      paintPennantHD(ctx, W / 2 - cw / 2 - 270, wallBase - 330, 210, 72, '#f5c518', 'ACADEMY HILL');
+      // shelves and the washer/dryer in the right corner
+      const shW = P ? 160 : 240;
+      paintShelfHD(ctx, W - shW - (P ? 10 : 40), wallBase - 330, shW, 330, 50);
+      if (!P) paintWasherDryer(ctx, W - shW - 250, wallBase - 104, 1);
+      // hanging green table lamp above the table
+      ctx.strokeStyle = '#1a1a1a'; ctx.lineWidth = 4;
+      ctx.beginPath(); ctx.moveTo(lampX, 0); ctx.lineTo(lampX, lampY - 60); ctx.stroke();
+      const lg = ctx.createLinearGradient(lampX - 230, lampY - 60, lampX + 230, lampY);
+      lg.addColorStop(0, '#123a1a'); lg.addColorStop(0.35, '#2f8a3f'); lg.addColorStop(0.55, '#6fcf7a'); lg.addColorStop(1, '#0f3016');
       ctx.fillStyle = lg;
-      ctx.beginPath(); ctx.moveTo(lx - 90, ly - 60); ctx.lineTo(lx + 90, ly - 60); ctx.lineTo(lx + 230, ly); ctx.lineTo(lx - 230, ly); ctx.closePath(); ctx.fill();
-      ctx.fillStyle = '#fff3b0';
-      ctx.beginPath(); ctx.ellipse(lx, ly, 230, 14, 0, 0, Math.PI * 2); ctx.fill();
-      const glow = ctx.createRadialGradient(lx, ly + 40, 20, lx, ly + 300, 700);
-      glow.addColorStop(0, 'rgba(255,240,170,0.28)');
+      ctx.beginPath(); ctx.moveTo(lampX - 90, lampY - 60); ctx.lineTo(lampX + 90, lampY - 60); ctx.lineTo(lampX + 230, lampY); ctx.lineTo(lampX - 230, lampY); ctx.closePath(); ctx.fill();
+      ctx.strokeStyle = 'rgba(0,0,0,0.5)'; ctx.lineWidth = 2; ctx.stroke();
+      ctx.fillStyle = '#b8862b'; ctx.fillRect(lampX - 232, lampY - 3, 464, 6);
+      const under = ctx.createLinearGradient(0, lampY, 0, lampY + 16);
+      under.addColorStop(0, '#fff6c0'); under.addColorStop(1, 'rgba(255,246,192,0)');
+      ctx.fillStyle = under;
+      ctx.beginPath(); ctx.ellipse(lampX, lampY + 2, 230, 16, 0, 0, Math.PI * 2); ctx.fill();
+      const glow = ctx.createRadialGradient(lampX, lampY + 40, 20, lampX, lampY + 300, 760);
+      glow.addColorStop(0, 'rgba(255,240,170,0.3)');
       glow.addColorStop(1, 'rgba(255,240,170,0)');
       ctx.fillStyle = glow;
-      ctx.fillRect(0, ly, W, H - ly);
+      ctx.fillRect(0, lampY, W, H - lampY);
+      // the table itself (static, so it lives in the backdrop texture)
+      this.paintTable(ctx);
+      paintRoomGrade(ctx, W, H, [{ x: lampX, y: this.fieldTop + (this.fieldBottom - this.fieldTop) * 0.45, r: W * 0.6, strength: 0.3 }, { x: W / 2 + cw / 2 + 90, y: wallBase - 170, r: 360, strength: 0.3 }], 0.45);
       this.textures.addCanvas(key, canvas);
     }
     this.add.image(this.W / 2, this.H / 2, key).setDepth(0);
   }
 
-  private drawTable(): void {
-    const g = this.add.graphics().setDepth(100);
+  /** Paints the table (rails, apron, felt, pockets, sights) in perspective onto the backdrop canvas. */
+  private paintTable(ctx: CanvasRenderingContext2D): void {
     const { tableW: w, tableL: L } = this.cfg;
     const rw = POOL_VISUAL.railWidth;
     const poly = (pts: [number, number][]) => pts.map(([x, z]) => this.sp(x, z));
-    // table body shadow on the floor
+    const path = (pts: { sx: number; sy: number }[]) => { ctx.beginPath(); pts.forEach((p, i) => (i ? ctx.lineTo(p.sx, p.sy) : ctx.moveTo(p.sx, p.sy))); ctx.closePath(); };
+    // floor shadow
     const outer = poly([[-rw - 0.05, -rw - 0.05], [w + rw + 0.05, -rw - 0.05], [w + rw + 0.05, L + rw + 0.05], [-rw - 0.05, L + rw + 0.05]]);
-    g.fillStyle(0x000000, 0.35);
-    g.beginPath(); g.moveTo(outer[0].sx + 18, outer[0].sy + 26); g.lineTo(outer[1].sx + 18, outer[1].sy + 26); g.lineTo(outer[2].sx + 12, outer[2].sy + 18); g.lineTo(outer[3].sx + 12, outer[3].sy + 18); g.closePath(); g.fillPath();
-    // apron (wood below the near rail)
+    const midX = outer[0].sx + (outer[1].sx - outer[0].sx) / 2;
+    const sh = ctx.createRadialGradient(midX, outer[0].sy + 40, 20, midX, outer[0].sy + 40, (outer[1].sx - outer[0].sx) * 0.7);
+    sh.addColorStop(0, 'rgba(0,0,0,0.45)'); sh.addColorStop(1, 'rgba(0,0,0,0)');
+    ctx.fillStyle = sh;
+    path([{ sx: outer[0].sx - 30, sy: outer[0].sy + 50 }, { sx: outer[1].sx + 30, sy: outer[1].sy + 50 }, { sx: outer[2].sx + 14, sy: outer[2].sy + 22 }, { sx: outer[3].sx - 14, sy: outer[3].sy + 22 }]); ctx.fill();
+    // apron (wood below the near rail) with grain
     const near = poly([[-rw, -rw], [w + rw, -rw]]);
     const apronH = Math.max(26, (this.fieldBottom - this.fieldTop) * 0.06);
-    g.fillStyle(0x3a2414, 1);
-    g.fillRect(near[0].sx, near[0].sy, near[1].sx - near[0].sx, apronH);
-    g.fillStyle(0x000000, 0.25);
-    g.fillRect(near[0].sx, near[0].sy + apronH * 0.6, near[1].sx - near[0].sx, apronH * 0.4);
-    // rails
+    const ag = ctx.createLinearGradient(0, near[0].sy, 0, near[0].sy + apronH);
+    ag.addColorStop(0, '#5a3418'); ag.addColorStop(0.5, '#3e2210'); ag.addColorStop(1, '#22120a');
+    ctx.fillStyle = ag;
+    ctx.fillRect(near[0].sx, near[0].sy, near[1].sx - near[0].sx, apronH);
+    ctx.strokeStyle = 'rgba(255,200,140,0.08)'; ctx.lineWidth = 1;
+    for (let k = 3; k < apronH; k += 5) { ctx.beginPath(); ctx.moveTo(near[0].sx, near[0].sy + k); ctx.lineTo(near[1].sx, near[0].sy + k + 1); ctx.stroke(); }
+    // rails with wood-grain gradient (lit from the lamp above)
     const rails = poly([[-rw, -rw], [w + rw, -rw], [w + rw, L + rw], [-rw, L + rw]]);
-    g.fillStyle(0x6b3f21, 1);
-    g.beginPath(); g.moveTo(rails[0].sx, rails[0].sy); g.lineTo(rails[1].sx, rails[1].sy); g.lineTo(rails[2].sx, rails[2].sy); g.lineTo(rails[3].sx, rails[3].sy); g.closePath(); g.fillPath();
-    g.lineStyle(3, 0x2a1608, 1);
-    g.strokePath();
-    g.fillStyle(0x8a5a30, 0.45);
-    g.beginPath(); g.moveTo(rails[0].sx, rails[0].sy); g.lineTo(rails[1].sx, rails[1].sy); g.lineTo(rails[1].sx - 10, rails[1].sy - 6); g.lineTo(rails[0].sx + 10, rails[0].sy - 6); g.closePath(); g.fillPath();
-    // cloth
+    const rg = ctx.createLinearGradient(0, rails[2].sy, 0, rails[0].sy);
+    rg.addColorStop(0, '#4a2a12'); rg.addColorStop(0.5, '#7a4a24'); rg.addColorStop(0.8, '#8c5a2e'); rg.addColorStop(1, '#5e3618');
+    ctx.fillStyle = rg;
+    path(rails); ctx.fill();
+    ctx.save(); path(rails); ctx.clip();
+    ctx.strokeStyle = 'rgba(40,20,5,0.25)'; ctx.lineWidth = 1.2;
+    for (let i = 0; i < 70; i++) {
+      const t = i / 70;
+      const a = { sx: rails[3].sx + (rails[0].sx - rails[3].sx) * t, sy: rails[3].sy + (rails[0].sy - rails[3].sy) * t };
+      const b = { sx: rails[2].sx + (rails[1].sx - rails[2].sx) * t, sy: rails[2].sy + (rails[1].sy - rails[2].sy) * t };
+      ctx.beginPath(); ctx.moveTo(a.sx, a.sy); ctx.bezierCurveTo(a.sx + (b.sx - a.sx) * 0.3, a.sy + 3, a.sx + (b.sx - a.sx) * 0.7, b.sy - 3, b.sx, b.sy); ctx.stroke();
+    }
+    ctx.restore();
+    ctx.strokeStyle = 'rgba(20,10,4,0.8)'; ctx.lineWidth = 3; path(rails); ctx.stroke();
+    ctx.fillStyle = 'rgba(255,220,170,0.22)';
+    path([rails[0], rails[1], { sx: rails[1].sx - 10, sy: rails[1].sy - 7 }, { sx: rails[0].sx + 10, sy: rails[0].sy - 7 }]); ctx.fill();
+    // felt: base, lamp pool, weave
     const cloth = poly([[0, 0], [w, 0], [w, L], [0, L]]);
-    g.fillStyle(0x2f8f45, 1);
-    g.beginPath(); g.moveTo(cloth[0].sx, cloth[0].sy); g.lineTo(cloth[1].sx, cloth[1].sy); g.lineTo(cloth[2].sx, cloth[2].sy); g.lineTo(cloth[3].sx, cloth[3].sy); g.closePath(); g.fillPath();
-    // cloth shading toward the far end and a lamp highlight in the middle
-    const mid = poly([[0, L * 0.55], [w, L * 0.55]]);
-    g.fillStyle(0x1f6a30, 0.35);
-    g.beginPath(); g.moveTo(mid[0].sx, mid[0].sy); g.lineTo(mid[1].sx, mid[1].sy); g.lineTo(cloth[2].sx, cloth[2].sy); g.lineTo(cloth[3].sx, cloth[3].sy); g.closePath(); g.fillPath();
-    g.fillStyle(0xffffff, 0.06);
+    const fg = ctx.createLinearGradient(0, cloth[2].sy, 0, cloth[0].sy);
+    fg.addColorStop(0, '#1f6e30'); fg.addColorStop(0.5, '#2d8c42'); fg.addColorStop(1, '#2a7f3c');
+    ctx.fillStyle = fg;
+    path(cloth); ctx.fill();
+    ctx.save(); path(cloth); ctx.clip();
     const c = this.sp(w / 2, L / 2);
-    g.fillEllipse(c.sx, c.sy, (w * 0.9) * c.scale, (L * 0.35) * c.scale * 0.45);
-    // cushion inner edge
-    g.lineStyle(4, 0x1d5a2a, 1);
-    g.beginPath(); g.moveTo(cloth[0].sx, cloth[0].sy); g.lineTo(cloth[1].sx, cloth[1].sy); g.lineTo(cloth[2].sx, cloth[2].sy); g.lineTo(cloth[3].sx, cloth[3].sy); g.closePath(); g.strokePath();
-    // head string
+    const pool = ctx.createRadialGradient(c.sx, c.sy, 10, c.sx, c.sy, (w * 1.1) * c.scale);
+    pool.addColorStop(0, 'rgba(255,250,200,0.2)'); pool.addColorStop(0.6, 'rgba(255,250,200,0.05)'); pool.addColorStop(1, 'rgba(0,0,0,0.18)');
+    ctx.fillStyle = pool;
+    ctx.fillRect(0, 0, ctx.canvas.width, ctx.canvas.height);
+    ctx.strokeStyle = 'rgba(0,0,0,0.05)'; ctx.lineWidth = 1;
+    for (let i = 0; i <= 40; i++) {
+      const t = i / 40;
+      const a = { sx: cloth[3].sx + (cloth[0].sx - cloth[3].sx) * t, sy: cloth[3].sy + (cloth[0].sy - cloth[3].sy) * t };
+      const b = { sx: cloth[2].sx + (cloth[1].sx - cloth[2].sx) * t, sy: cloth[2].sy + (cloth[1].sy - cloth[2].sy) * t };
+      ctx.beginPath(); ctx.moveTo(a.sx, a.sy); ctx.lineTo(b.sx, b.sy); ctx.stroke();
+    }
+    for (let i = 0; i <= 24; i++) {
+      const t = i / 24;
+      const a = { sx: cloth[0].sx + (cloth[1].sx - cloth[0].sx) * t, sy: cloth[0].sy };
+      const b = { sx: cloth[3].sx + (cloth[2].sx - cloth[3].sx) * t, sy: cloth[3].sy };
+      ctx.beginPath(); ctx.moveTo(a.sx, a.sy); ctx.lineTo(b.sx, b.sy); ctx.stroke();
+    }
+    ctx.restore();
+    ctx.strokeStyle = 'rgba(10,50,20,0.9)'; ctx.lineWidth = 5; path(cloth); ctx.stroke();
+    ctx.strokeStyle = 'rgba(120,220,140,0.25)'; ctx.lineWidth = 1.5;
+    path([{ sx: cloth[0].sx + 3, sy: cloth[0].sy - 3 }, { sx: cloth[1].sx - 3, sy: cloth[1].sy - 3 }, { sx: cloth[2].sx - 2, sy: cloth[2].sy - 2 }, { sx: cloth[3].sx + 2, sy: cloth[3].sy - 2 }]); ctx.stroke();
+    // head string and foot spot
     const hs = poly([[0, L / 4], [w, L / 4]]);
-    g.lineStyle(2, 0xffffff, 0.25);
-    g.beginPath(); g.moveTo(hs[0].sx, hs[0].sy); g.lineTo(hs[1].sx, hs[1].sy); g.strokePath();
-    // foot spot
+    ctx.strokeStyle = 'rgba(255,255,255,0.22)'; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.moveTo(hs[0].sx, hs[0].sy); ctx.lineTo(hs[1].sx, hs[1].sy); ctx.stroke();
     const fs = this.sp(w / 2, L * 0.75);
-    g.fillStyle(0xffffff, 0.5);
-    g.fillEllipse(fs.sx, fs.sy, 10, 5);
-    // diamonds on the rails
-    g.fillStyle(0xf5e9c8, 0.9);
-    for (let i = 1; i < 8; i++) {
-      const zz = (L * i) / 8;
-      for (const xx of [-rw / 2, w + rw / 2]) { const p = this.sp(xx, zz); g.fillEllipse(p.sx, p.sy, 7, 4); }
-    }
-    for (let i = 1; i < 4; i++) {
-      const xx = (w * i) / 4;
-      for (const zz of [-rw / 2, L + rw / 2]) { const p = this.sp(xx, zz); g.fillEllipse(p.sx, p.sy, 7, 4); }
-    }
-    // pockets
+    ctx.fillStyle = 'rgba(255,255,255,0.5)';
+    ctx.beginPath(); ctx.ellipse(fs.sx, fs.sy, 5, 2.5, 0, 0, Math.PI * 2); ctx.fill();
+    // diamond sights (mother-of-pearl)
+    const sight = (x: number, z: number) => {
+      const p = this.sp(x, z);
+      const s = Math.max(3, 0.03 * p.scale);
+      const g = ctx.createLinearGradient(p.sx - s, p.sy - s, p.sx + s, p.sy + s);
+      g.addColorStop(0, '#ffffff'); g.addColorStop(0.5, '#e8e2d0'); g.addColorStop(1, '#a89e88');
+      ctx.fillStyle = g;
+      ctx.beginPath(); ctx.moveTo(p.sx, p.sy - s * 0.7); ctx.lineTo(p.sx + s, p.sy); ctx.lineTo(p.sx, p.sy + s * 0.7); ctx.lineTo(p.sx - s, p.sy); ctx.closePath(); ctx.fill();
+      ctx.strokeStyle = 'rgba(0,0,0,0.35)'; ctx.lineWidth = 1; ctx.stroke();
+    };
+    for (let i = 1; i < 8; i++) { if (i === 4) continue; for (const xx of [-rw / 2, w + rw / 2]) sight(xx, (L * i) / 8); }
+    for (let i = 1; i < 4; i++) { if (i === 2) continue; for (const zz of [-rw / 2, L + rw / 2]) sight((w * i) / 4, zz); }
+    // pockets with chrome liners
     for (const p of pockets(this.cfg)) {
       const s = this.sp(p.x, p.z);
       const rx = p.r * s.scale * 0.88;
       const ry = rx * 0.55;
-      g.fillStyle(0x000000, 1);
-      g.fillEllipse(s.sx, s.sy, rx * 2, ry * 2);
-      g.lineStyle(5, 0x2b1a0e, 1);
-      g.strokeEllipse(s.sx, s.sy, rx * 2 + 6, ry * 2 + 4);
+      const liner = ctx.createLinearGradient(s.sx - rx, s.sy - ry, s.sx + rx, s.sy + ry);
+      liner.addColorStop(0, '#f2f2f2'); liner.addColorStop(0.35, '#8e8e8e'); liner.addColorStop(0.6, '#e0e0e0'); liner.addColorStop(1, '#4a4a4a');
+      ctx.fillStyle = liner;
+      ctx.beginPath(); ctx.ellipse(s.sx, s.sy, rx + 7, ry + 5, 0, 0, Math.PI * 2); ctx.fill();
+      const hole = ctx.createRadialGradient(s.sx, s.sy + ry * 0.3, 1, s.sx, s.sy, rx);
+      hole.addColorStop(0, '#000'); hole.addColorStop(0.75, '#050505'); hole.addColorStop(1, '#1a1a1a');
+      ctx.fillStyle = hole;
+      ctx.beginPath(); ctx.ellipse(s.sx, s.sy, rx, ry, 0, 0, Math.PI * 2); ctx.fill();
+      ctx.strokeStyle = 'rgba(255,255,255,0.35)'; ctx.lineWidth = 1.5;
+      ctx.beginPath(); ctx.ellipse(s.sx, s.sy, rx + 7, ry + 5, 0, Math.PI * 1.1, Math.PI * 1.9); ctx.stroke();
     }
   }
 
@@ -691,7 +689,10 @@ export class PoolScene extends BaseGameScene {
       const p = this.sp(b.x, b.z);
       const px = Math.max(10, d * p.scale);
       img.setVisible(true).setPosition(p.sx, p.sy - px * 0.42).setScale(px / 52).setDepth(400 + (this.cfg.tableL - b.z) * 40);
-      sh.setVisible(true).setPosition(p.sx + px * 0.12, p.sy + px * 0.05).setScale((px / 128) * 1.3, (px / 128) * 0.6).setDepth(399 + (this.cfg.tableL - b.z) * 40);
+      // shadow falls away from the lamp over the table centre
+      const lx = (b.x - this.cfg.tableW / 2) / this.cfg.tableW;
+      const lz = (b.z - this.cfg.tableL / 2) / this.cfg.tableL;
+      sh.setVisible(true).setPosition(p.sx + px * (0.05 + lx * 0.5), p.sy + px * (0.06 - lz * 0.25)).setScale((px / 128) * 1.25, (px / 128) * 0.55).setAlpha(0.65).setDepth(399 + (this.cfg.tableL - b.z) * 40);
     }
   }
 

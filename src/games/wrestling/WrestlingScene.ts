@@ -6,7 +6,8 @@ import { Audio } from '../../core/audio';
 import { displayStyle, textStyle, confetti, impact, shake } from '../../core/ui';
 import type { Controls } from '../../core/input';
 import { CharacterSprite } from '../../art/characters';
-import { createCanvas, paintCarpet, paintConcrete, paintCouchFront, paintLamp, paintPennant, paintPoster, roundRect, shade } from '../../art/environment';
+import { createCanvas, paintLamp, roundRect, shade, rng } from '../../art/environment';
+import { paintBraidedRug, paintBulb, paintCinderWallProjected, paintConcreteHD, paintCouchHD, paintPennantHD, paintPipes, paintPosterHD, paintRoomGrade, paintShelfHD, paintWasherDryer } from '../pool/basementArt';
 import { NO_INPUT, WRESTLING_TUNING, createWrestling, escapeWindowHit, isVulnerable, other, step, vulnerabilityLeft, type Inputs, type WrestlingEvent, type WrestlingState } from './sim';
 import { aiInputs, createAiMemory, type AiMemory } from './ai';
 
@@ -101,140 +102,133 @@ export class WrestlingScene extends BaseGameScene {
       const pr = this.proj;
       const V = WRESTLING_VISUAL;
       const wz = V.wallZ;
-      // ceiling / joists above the wall top
-      ctx.fillStyle = '#2b1d12';
+      ctx.fillStyle = '#1a120b';
       ctx.fillRect(0, 0, W, H);
       const wallTop = pr.project(0, V.wallHeight, wz).sy;
       const wallBot = pr.project(0, 0, wz).sy;
-      // floor everywhere below the horizon, then walls on top
-      paintConcrete(ctx, 0, pr.cam.horizonY - 2, W, H - pr.cam.horizonY + 2, 31);
-      // braided rugs on the floor
-      const rug = (x: number, z: number, r: number) => {
+      // floor everywhere below the horizon
+      paintConcreteHD(ctx, 0, pr.cam.horizonY - 2, W, H - pr.cam.horizonY + 2, 31, { base: '#8b877f' });
+      // braided rugs
+      const rug = (x: number, z: number, r: number, seed: number) => {
         const p = pr.project(x, 0, z);
-        ctx.save();
-        ctx.translate(p.sx, p.sy);
-        ctx.scale(1, 0.45);
-        ctx.globalAlpha = 0.8;
-        for (let i = 7; i >= 0; i--) {
-          ctx.fillStyle = ['#6e5a4a', '#8a7a62', '#5c6b4e', '#7a6350'][i % 4];
-          ctx.beginPath(); ctx.arc(0, 0, r * p.scale * (i + 1) / 8, 0, Math.PI * 2); ctx.fill();
-        }
-        ctx.globalAlpha = 1;
-        ctx.restore();
+        paintBraidedRug(ctx, p.sx, p.sy, r * p.scale, r * p.scale * 0.42, seed);
       };
-      rug(-4.0, 2.9, 0.9);
-      rug(3.8, 2.0, 0.7);
-      // side walls (cinder block)
-      const sideWall = (sx: number) => {
-        const c0 = pr.project(sx, 0, -2), c1 = pr.project(sx, V.wallHeight, -2), c2 = pr.project(sx, V.wallHeight, wz), c3 = pr.project(sx, 0, wz);
-        const g = ctx.createLinearGradient(c0.sx, 0, c3.sx, 0);
-        g.addColorStop(0, '#8d8a80'); g.addColorStop(1, '#6e6b62');
-        ctx.fillStyle = g;
-        ctx.beginPath(); ctx.moveTo(c0.sx, c0.sy); ctx.lineTo(c1.sx, c1.sy); ctx.lineTo(c2.sx, c2.sy); ctx.lineTo(c3.sx, c3.sy); ctx.closePath(); ctx.fill();
-        ctx.save(); ctx.clip();
-        ctx.strokeStyle = 'rgba(0,0,0,0.18)'; ctx.lineWidth = 2;
-        for (let h = 0; h <= V.wallHeight; h += 0.25) {
-          const a = pr.project(sx, h, -2), b = pr.project(sx, h, wz);
-          ctx.beginPath(); ctx.moveTo(a.sx, a.sy); ctx.lineTo(b.sx, b.sy); ctx.stroke();
-        }
-        for (let z = -2; z <= wz; z += 0.5) {
-          const a = pr.project(sx, 0, z), b = pr.project(sx, V.wallHeight, z);
-          ctx.beginPath(); ctx.moveTo(a.sx, a.sy); ctx.lineTo(b.sx, b.sy); ctx.stroke();
-        }
-        ctx.restore();
-      };
-      sideWall(-V.sideX);
-      sideWall(V.sideX);
-      // back wall: cinder block with a warm wash
-      const wl = pr.project(-V.sideX, 0, wz).sx, wr = pr.project(V.sideX, 0, wz).sx;
-      const bg = ctx.createLinearGradient(0, wallTop, 0, wallBot);
-      bg.addColorStop(0, '#7d7a70'); bg.addColorStop(0.6, '#a39f93'); bg.addColorStop(1, '#8a877d');
-      ctx.fillStyle = bg;
-      ctx.fillRect(wl, wallTop, wr - wl, wallBot - wallTop);
+      rug(-4.0, 2.9, 0.9, 7);
+      rug(3.8, 2.0, 0.7, 9);
+      // walls: cinder block in perspective with the bulbs lighting them
+      paintCinderWallProjected(ctx, pr, { kind: 'side', x: -V.sideX, z0: -2, z1: wz }, V.wallHeight, { seed: 43, base: '#8f8a7e', lightAt: { x: -2.5, z: 2.5, r: 6 } });
+      paintCinderWallProjected(ctx, pr, { kind: 'side', x: V.sideX, z0: -2, z1: wz }, V.wallHeight, { seed: 44, base: '#8f8a7e', lightAt: { x: 2.5, z: 2.5, r: 6 } });
+      paintCinderWallProjected(ctx, pr, { kind: 'back', z: wz, x0: -V.sideX, x1: V.sideX }, V.wallHeight, { seed: 45, base: '#9a948a', lightAt: { x: 0, z: 2.5, r: 7.5 } });
       const bs = pr.scaleAt(wz);
-      ctx.strokeStyle = 'rgba(0,0,0,0.16)'; ctx.lineWidth = 2;
-      for (let y = wallTop; y < wallBot; y += 0.25 * bs) { ctx.beginPath(); ctx.moveTo(wl, y); ctx.lineTo(wr, y); ctx.stroke(); }
-      let row = 0;
-      for (let y = wallTop; y < wallBot; y += 0.25 * bs, row++) {
-        for (let x = wl + (row % 2) * 0.25 * bs; x < wr; x += 0.5 * bs) { ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo(x, y + 0.25 * bs); ctx.stroke(); }
-      }
-      // ceiling joists
-      ctx.fillStyle = '#3a2817';
+      // damp line and a floor drain
+      const dl = pr.project(-V.sideX, 0, wz), dr = pr.project(V.sideX, 0, wz);
+      const damp = ctx.createLinearGradient(0, wallBot - 0.5 * bs, 0, wallBot);
+      damp.addColorStop(0, 'rgba(50,40,30,0)'); damp.addColorStop(1, 'rgba(50,40,30,0.35)');
+      ctx.fillStyle = damp; ctx.fillRect(dl.sx, wallBot - 0.5 * bs, dr.sx - dl.sx, 0.5 * bs);
+      const drain = pr.project(4.2, 0, 4.6);
+      ctx.fillStyle = '#4a4a4a'; ctx.beginPath(); ctx.ellipse(drain.sx, drain.sy, 0.16 * drain.scale, 0.07 * drain.scale, 0, 0, Math.PI * 2); ctx.fill();
+      ctx.strokeStyle = '#222'; ctx.lineWidth = 1.5;
+      for (let k = -2; k <= 2; k++) { ctx.beginPath(); ctx.moveTo(drain.sx - 0.12 * drain.scale, drain.sy + k * 0.025 * drain.scale); ctx.lineTo(drain.sx + 0.12 * drain.scale, drain.sy + k * 0.025 * drain.scale); ctx.stroke(); }
+      // ceiling joists with shaded faces, a duct and pipes
       for (let i = -8; i <= 8; i++) {
         const a = pr.project(i * 1.2, V.wallHeight + 0.05, -2.5), b = pr.project(i * 1.2, V.wallHeight + 0.05, wz);
+        const jg = ctx.createLinearGradient(a.sx - 10, 0, a.sx + 10, 0);
+        jg.addColorStop(0, '#6a4a2c'); jg.addColorStop(0.5, '#4a3219'); jg.addColorStop(1, '#2a1a0c');
+        ctx.fillStyle = jg;
         ctx.beginPath(); ctx.moveTo(a.sx - 10, Math.min(a.sy, 0)); ctx.lineTo(b.sx - 4, b.sy); ctx.lineTo(b.sx + 4, b.sy); ctx.lineTo(a.sx + 10, Math.min(a.sy, 0)); ctx.closePath(); ctx.fill();
       }
-      // hanging bulbs
+      const pipeA = pr.project(-V.sideX, V.wallHeight - 0.12, wz - 0.4), pipeB = pr.project(V.sideX, V.wallHeight - 0.12, wz - 0.4);
+      paintPipes(ctx, pipeA.sx, pipeB.sx, pipeA.sy, { copper: true, thickness: Math.max(4, 0.05 * bs) });
+      const ductA = pr.project(-V.sideX, V.wallHeight - 0.3, wz - 1.2), ductB = pr.project(V.sideX, V.wallHeight - 0.3, wz - 1.2);
+      const dg = ctx.createLinearGradient(0, ductA.sy - 0.2 * bs, 0, ductA.sy + 0.15 * bs);
+      dg.addColorStop(0, '#9aa0a6'); dg.addColorStop(0.5, '#d3d8dc'); dg.addColorStop(1, '#5f666b');
+      ctx.fillStyle = dg;
+      ctx.fillRect(ductA.sx, ductA.sy - 0.2 * bs, ductB.sx - ductA.sx, 0.35 * bs);
+      ctx.strokeStyle = 'rgba(0,0,0,0.3)'; ctx.lineWidth = 2;
+      for (let x = ductA.sx; x < ductB.sx; x += 0.9 * bs) { ctx.beginPath(); ctx.moveTo(x, ductA.sy - 0.2 * bs); ctx.lineTo(x, ductA.sy + 0.15 * bs); ctx.stroke(); }
+      // hanging bulbs with light pools
       for (const x of [-2.5, 2.5]) {
         const p = pr.project(x, V.wallHeight - 0.35, 2.5);
-        ctx.strokeStyle = '#222'; ctx.lineWidth = 2;
-        ctx.beginPath(); ctx.moveTo(p.sx, p.sy - 0.35 * p.scale); ctx.lineTo(p.sx, p.sy); ctx.stroke();
-        const glow = ctx.createRadialGradient(p.sx, p.sy, 2, p.sx, p.sy, 0.9 * p.scale);
-        glow.addColorStop(0, 'rgba(255,235,170,0.9)'); glow.addColorStop(0.2, 'rgba(255,225,150,0.35)'); glow.addColorStop(1, 'rgba(255,225,150,0)');
-        ctx.fillStyle = glow; ctx.fillRect(p.sx - p.scale, p.sy - p.scale, 2 * p.scale, 2 * p.scale);
-        ctx.fillStyle = '#fff2b0'; ctx.beginPath(); ctx.arc(p.sx, p.sy, 0.06 * p.scale, 0, Math.PI * 2); ctx.fill();
+        const top = pr.project(x, V.wallHeight + 0.05, 2.5);
+        paintBulb(ctx, p.sx, top.sy, p.sy, Math.max(0.6, p.scale / 160));
       }
-      // stairs (left)
+      // stairs (left), with shaded risers/treads and a railing
       const stairX = -4.3;
       for (let i = 0; i < 7; i++) {
         const z0 = wz - 0.2 - i * 0.42, h0 = i * 0.3;
         const a = pr.project(stairX - 0.9, h0 + 0.3, z0), b = pr.project(stairX + 0.3, h0 + 0.3, z0), c = pr.project(stairX + 0.3, h0 + 0.3, z0 + 0.42), d = pr.project(stairX - 0.9, h0 + 0.3, z0 + 0.42);
-        ctx.fillStyle = i % 2 ? '#8a5a35' : '#9a6a40';
+        const tg = ctx.createLinearGradient(0, c.sy, 0, a.sy);
+        tg.addColorStop(0, '#7a4e2a'); tg.addColorStop(1, '#b07e4e');
+        ctx.fillStyle = tg;
         ctx.beginPath(); ctx.moveTo(a.sx, a.sy); ctx.lineTo(b.sx, b.sy); ctx.lineTo(c.sx, c.sy); ctx.lineTo(d.sx, d.sy); ctx.closePath(); ctx.fill();
+        ctx.strokeStyle = 'rgba(40,20,5,0.4)'; ctx.lineWidth = 1; ctx.stroke();
         const e = pr.project(stairX - 0.9, h0, z0), f = pr.project(stairX + 0.3, h0, z0);
-        ctx.fillStyle = '#5c3a1e';
+        const rg = ctx.createLinearGradient(0, a.sy, 0, e.sy);
+        rg.addColorStop(0, '#4a2c14'); rg.addColorStop(1, '#2d1a0a');
+        ctx.fillStyle = rg;
         ctx.beginPath(); ctx.moveTo(a.sx, a.sy); ctx.lineTo(b.sx, b.sy); ctx.lineTo(f.sx, f.sy); ctx.lineTo(e.sx, e.sy); ctx.closePath(); ctx.fill();
+      }
+      ctx.strokeStyle = '#2b1a0d'; ctx.lineWidth = Math.max(3, 0.05 * bs); ctx.lineCap = 'round';
+      const r0 = pr.project(stairX + 0.3, 1.0, wz - 0.2), r1 = pr.project(stairX + 0.3, 1.0 + 6 * 0.3, wz - 0.2 - 6 * 0.42);
+      ctx.beginPath(); ctx.moveTo(r0.sx, r0.sy); ctx.lineTo(r1.sx, r1.sy); ctx.stroke();
+      ctx.lineWidth = Math.max(2, 0.03 * bs);
+      for (let i = 0; i < 7; i += 2) {
+        const top = pr.project(stairX + 0.3, 1.0 + i * 0.3, wz - 0.2 - i * 0.42), bot = pr.project(stairX + 0.3, i * 0.3 + 0.3, wz - 0.2 - i * 0.42);
+        ctx.beginPath(); ctx.moveTo(top.sx, top.sy); ctx.lineTo(bot.sx, bot.sy); ctx.stroke();
       }
       // couch against the back wall, lamp beside it
       const cp = pr.project(-0.3, 0, wz - 0.1);
       const cs = cp.scale;
-      paintCouchFront(ctx, cp.sx - 1.1 * cs, cp.sy - 0.95 * cs, 2.4 * cs, 0.95 * cs, '#5f6b3f');
-      // plaid pattern on the couch
-      ctx.save();
-      ctx.globalAlpha = 0.25;
-      ctx.strokeStyle = '#c9a35a'; ctx.lineWidth = 2;
-      for (let x = cp.sx - 1.1 * cs; x < cp.sx + 1.3 * cs; x += 0.18 * cs) { ctx.beginPath(); ctx.moveTo(x, cp.sy - 0.95 * cs); ctx.lineTo(x, cp.sy); ctx.stroke(); }
-      for (let y = cp.sy - 0.95 * cs; y < cp.sy; y += 0.18 * cs) { ctx.beginPath(); ctx.moveTo(cp.sx - 1.1 * cs, y); ctx.lineTo(cp.sx + 1.3 * cs, y); ctx.stroke(); }
-      ctx.restore();
+      paintCouchHD(ctx, cp.sx - 1.2 * cs, cp.sy - 0.95 * cs, 2.5 * cs, 0.95 * cs, '#5f6b3f');
       const lp = pr.project(-2.0, 0, wz - 0.15);
       paintLamp(ctx, lp.sx, lp.sy - 0.5 * lp.scale, lp.scale / 95);
-      // pennant and picture
+      // pennant and poster
       const pn = pr.project(-3.0, 2.0, wz);
-      paintPennant(ctx, pn.sx, pn.sy, 0.9 * bs, 0.4 * bs, '#f5c518', 'ACADEMY HILL');
-      const po = pr.project(1.4, 1.95, wz);
-      paintPoster(ctx, po.sx, po.sy, 0.7 * bs, 0.5 * bs, '#3f6b3a', 'PINES');
-      // shelves with boxes (right side) and the belt chair
+      paintPennantHD(ctx, pn.sx, pn.sy, 0.9 * bs, 0.4 * bs, '#f5c518', 'ACADEMY HILL');
+      const po = pr.project(1.4, 2.0, wz);
+      paintPosterHD(ctx, po.sx, po.sy, 0.7 * bs, 0.5 * bs, '#3f6b3a', ['PINES', 'WRESTLING']);
+      // shelves with boxes (right side) and the washer/dryer beside them
       const sp = pr.project(this.portrait ? 3.1 : 4.3, 0, wz - 0.05);
       const ss = sp.scale;
-      ctx.fillStyle = '#4a4a4a';
-      for (let i = 0; i < 4; i++) ctx.fillRect(sp.sx - 0.6 * ss, sp.sy - (0.5 + i * 0.5) * ss, 1.3 * ss, 0.05 * ss);
-      ctx.fillRect(sp.sx - 0.62 * ss, sp.sy - 2.05 * ss, 0.05 * ss, 2.05 * ss);
-      ctx.fillRect(sp.sx + 0.67 * ss, sp.sy - 2.05 * ss, 0.05 * ss, 2.05 * ss);
-      const boxCols = ['#b58b5a', '#6b9bd0', '#c9b58a', '#9b6b4a', '#d0d0d0', '#7f9a6b'];
-      for (let i = 0; i < 6; i++) {
-        const bx = sp.sx - 0.55 * ss + (i % 3) * 0.42 * ss;
-        const by = sp.sy - (0.5 + Math.floor(i / 3) * 0.5) * ss - 0.4 * ss;
-        ctx.fillStyle = boxCols[i];
-        ctx.fillRect(bx, by, 0.38 * ss, 0.38 * ss);
-        ctx.strokeStyle = 'rgba(0,0,0,0.35)'; ctx.strokeRect(bx, by, 0.38 * ss, 0.38 * ss);
-      }
+      paintShelfHD(ctx, sp.sx - 0.65 * ss, sp.sy - 2.05 * ss, 1.3 * ss, 2.05 * ss, 50);
       ctx.fillStyle = '#eee'; ctx.font = `bold ${Math.round(0.11 * ss)}px Arial`; ctx.textAlign = 'center';
-      ctx.fillText('CURTAINS', sp.sx + 0.08 * ss, sp.sy - 1.2 * ss);
+      ctx.fillText('CURTAINS', sp.sx + 0.08 * ss, sp.sy - 1.25 * ss);
+      if (!this.portrait) {
+        const wd = pr.project(2.2, 0, wz - 0.05);
+        paintWasherDryer(ctx, wd.sx, wd.sy - 1.0 * wd.scale, wd.scale / 100);
+      }
       // folding chair with the belt
       const ch = pr.project(this.portrait ? 2.1 : 2.7, 0, 2.2);
       const chs = ch.scale;
-      ctx.strokeStyle = '#8a8a8a'; ctx.lineWidth = Math.max(2, 0.03 * chs);
+      ctx.fillStyle = 'rgba(0,0,0,0.28)';
+      ctx.beginPath(); ctx.ellipse(ch.sx + 0.05 * chs, ch.sy + 0.02 * chs, 0.36 * chs, 0.12 * chs, 0, 0, Math.PI * 2); ctx.fill();
+      ctx.strokeStyle = '#9a9a9a'; ctx.lineWidth = Math.max(2, 0.03 * chs);
       ctx.beginPath(); ctx.moveTo(ch.sx - 0.25 * chs, ch.sy); ctx.lineTo(ch.sx - 0.2 * chs, ch.sy - 0.45 * chs); ctx.moveTo(ch.sx + 0.25 * chs, ch.sy); ctx.lineTo(ch.sx + 0.2 * chs, ch.sy - 0.45 * chs); ctx.stroke();
-      ctx.fillStyle = '#6b6b6b';
+      const seat = ctx.createLinearGradient(0, ch.sy - 0.5 * chs, 0, ch.sy - 0.4 * chs);
+      seat.addColorStop(0, '#8a8a8a'); seat.addColorStop(1, '#555');
+      ctx.fillStyle = seat;
       roundRect(ctx, ch.sx - 0.25 * chs, ch.sy - 0.5 * chs, 0.5 * chs, 0.1 * chs, 3); ctx.fill();
+      const back = ctx.createLinearGradient(ch.sx - 0.22 * chs, 0, ch.sx + 0.22 * chs, 0);
+      back.addColorStop(0, '#7a7a7a'); back.addColorStop(0.5, '#5a5a5a'); back.addColorStop(1, '#3f3f3f');
+      ctx.fillStyle = back;
       roundRect(ctx, ch.sx - 0.22 * chs, ch.sy - 0.95 * chs, 0.44 * chs, 0.35 * chs, 4); ctx.fill();
       ctx.fillStyle = '#fff'; ctx.fillRect(ch.sx - 0.2 * chs, ch.sy - 1.25 * chs, 0.4 * chs, 0.2 * chs);
       ctx.fillStyle = '#222'; ctx.font = `bold ${Math.round(0.1 * chs)}px Arial`; ctx.textAlign = 'center';
       ctx.fillText('THE BELT ↓', ch.sx, ch.sy - 1.11 * chs);
       const belt = this.textures.get('belt').getSourceImage() as HTMLCanvasElement;
       ctx.drawImage(belt, ch.sx - 0.3 * chs, ch.sy - 0.78 * chs, 0.6 * chs, 0.23 * chs);
+      // glint on the belt plate
+      ctx.save();
+      ctx.globalCompositeOperation = 'lighter';
+      const gl = ctx.createLinearGradient(ch.sx - 0.1 * chs, ch.sy - 0.78 * chs, ch.sx + 0.08 * chs, ch.sy - 0.55 * chs);
+      gl.addColorStop(0, 'rgba(255,255,255,0)'); gl.addColorStop(0.5, 'rgba(255,255,230,0.55)'); gl.addColorStop(1, 'rgba(255,255,255,0)');
+      ctx.fillStyle = gl;
+      ctx.fillRect(ch.sx - 0.12 * chs, ch.sy - 0.78 * chs, 0.24 * chs, 0.23 * chs);
+      ctx.restore();
       // ---- the cushion ring ----
       this.paintRing(ctx);
+      const l1 = pr.project(-2.5, 0, 2.5), l2 = pr.project(2.5, 0, 2.5);
+      paintRoomGrade(ctx, W, H, [{ x: l1.sx, y: l1.sy - 0.6 * l1.scale, r: W * 0.42, strength: 0.32 }, { x: l2.sx, y: l2.sy - 0.6 * l2.scale, r: W * 0.42, strength: 0.32 }], 0.4);
       this.textures.addCanvas(key, canvas);
     }
     this.add.image(W / 2, H / 2, key).setDepth(0);
@@ -247,7 +241,7 @@ export class WrestlingScene extends BaseGameScene {
     const half = t.ringSize / 2;
     // chalk outline on the floor
     const chalk = [pr.project(-half - 0.25, 0, -half - 0.25), pr.project(half + 0.25, 0, -half - 0.25), pr.project(half + 0.25, 0, half + 0.25), pr.project(-half - 0.25, 0, half + 0.25)];
-    ctx.strokeStyle = 'rgba(255,255,255,0.75)';
+    ctx.strokeStyle = 'rgba(255,255,255,0.8)';
     ctx.lineWidth = 3;
     ctx.setLineDash([12, 8]);
     ctx.beginPath(); chalk.forEach((p, i) => (i ? ctx.lineTo(p.sx, p.sy) : ctx.moveTo(p.sx, p.sy))); ctx.closePath(); ctx.stroke();
@@ -257,8 +251,13 @@ export class WrestlingScene extends BaseGameScene {
     ctx.font = `italic ${Math.round(0.1 * lbl.scale)}px "Trebuchet MS", Arial`;
     ctx.textAlign = 'right';
     ['HOMEMADE', 'CUSHION RING', '10 x 10 FT'].forEach((line, i) => ctx.fillText(line, lbl.sx, lbl.sy + i * 0.12 * lbl.scale));
+    // soft contact shadow under the whole ring
+    const c0 = pr.project(-half - 0.1, 0, -half - 0.1), c1 = pr.project(half + 0.1, 0, -half - 0.1), c2 = pr.project(half + 0.1, 0, half + 0.1), c3 = pr.project(-half - 0.1, 0, half + 0.1);
+    ctx.fillStyle = 'rgba(0,0,0,0.25)';
+    ctx.beginPath(); ctx.moveTo(c0.sx - 6, c0.sy + 8); ctx.lineTo(c1.sx + 6, c1.sy + 8); ctx.lineTo(c2.sx + 4, c2.sy + 3); ctx.lineTo(c3.sx - 4, c3.sy + 3); ctx.closePath(); ctx.fill();
     const fabrics = ['#6b6b3f', '#7a6a4a', '#5f6b3f', '#8a6a3a', '#6b5a4a', '#6b6b3f', '#5f6b3f', '#7a6a4a', '#8a7a5a'];
     const cell = t.ringSize / 3;
+    const r = rng(77);
     // far rows first
     for (let row = 2; row >= 0; row--) {
       for (let col = 0; col < 3; col++) {
@@ -266,47 +265,100 @@ export class WrestlingScene extends BaseGameScene {
         const z1 = -half + row * cell + cell, z0 = z1 - cell; // z0 near edge
         const idx = row * 3 + col;
         const base = fabrics[idx];
-        // front face
+        const sag = 0.035; // cushions dip a little in the middle
+        // front face (darker, with a piped bottom edge)
         const f0 = pr.project(x0, 0, z0), f1 = pr.project(x1, 0, z0), f2 = pr.project(x1, h, z0), f3 = pr.project(x0, h, z0);
-        ctx.fillStyle = shade(base, -0.35);
+        const fg = ctx.createLinearGradient(0, f2.sy, 0, f0.sy);
+        fg.addColorStop(0, shade(base, -0.22)); fg.addColorStop(1, shade(base, -0.45));
+        ctx.fillStyle = fg;
         ctx.beginPath(); ctx.moveTo(f0.sx, f0.sy); ctx.lineTo(f1.sx, f1.sy); ctx.lineTo(f2.sx, f2.sy); ctx.lineTo(f3.sx, f3.sy); ctx.closePath(); ctx.fill();
-        // top face
+        // side face on the outer right column
+        if (col === 2) {
+          const s0 = pr.project(x1, 0, z0), s1 = pr.project(x1, 0, z1), s2 = pr.project(x1, h, z1), s3 = pr.project(x1, h, z0);
+          ctx.fillStyle = shade(base, -0.32);
+          ctx.beginPath(); ctx.moveTo(s0.sx, s0.sy); ctx.lineTo(s1.sx, s1.sy); ctx.lineTo(s2.sx, s2.sy); ctx.lineTo(s3.sx, s3.sy); ctx.closePath(); ctx.fill();
+        }
+        if (col === 0) {
+          const s0 = pr.project(x0, 0, z0), s1 = pr.project(x0, 0, z1), s2 = pr.project(x0, h, z1), s3 = pr.project(x0, h, z0);
+          ctx.fillStyle = shade(base, -0.32);
+          ctx.beginPath(); ctx.moveTo(s0.sx, s0.sy); ctx.lineTo(s1.sx, s1.sy); ctx.lineTo(s2.sx, s2.sy); ctx.lineTo(s3.sx, s3.sy); ctx.closePath(); ctx.fill();
+        }
+        // top face with a sag: edges bow inward slightly
         const t0 = pr.project(x0 + 0.02, h, z0 + 0.02), t1 = pr.project(x1 - 0.02, h, z0 + 0.02), t2 = pr.project(x1 - 0.02, h, z1 - 0.02), t3 = pr.project(x0 + 0.02, h, z1 - 0.02);
-        const g = ctx.createLinearGradient(t0.sx, t3.sy, t0.sx, t0.sy);
-        g.addColorStop(0, shade(base, -0.1)); g.addColorStop(0.5, shade(base, 0.12)); g.addColorStop(1, shade(base, -0.05));
+        const m01 = pr.project((x0 + x1) / 2, h - sag, z0 + 0.02), m12 = pr.project(x1 - 0.02, h - sag, (z0 + z1) / 2), m23 = pr.project((x0 + x1) / 2, h - sag, z1 - 0.02), m30 = pr.project(x0 + 0.02, h - sag, (z0 + z1) / 2);
+        const topPath = () => {
+          ctx.beginPath();
+          ctx.moveTo(t0.sx, t0.sy);
+          ctx.quadraticCurveTo(m01.sx, m01.sy, t1.sx, t1.sy);
+          ctx.quadraticCurveTo(m12.sx, m12.sy, t2.sx, t2.sy);
+          ctx.quadraticCurveTo(m23.sx, m23.sy, t3.sx, t3.sy);
+          ctx.quadraticCurveTo(m30.sx, m30.sy, t0.sx, t0.sy);
+          ctx.closePath();
+        };
+        const centre = pr.project((x0 + x1) / 2, h, (z0 + z1) / 2);
+        const g = ctx.createRadialGradient(centre.sx - 0.2 * centre.scale, centre.sy - 0.15 * centre.scale, 2, centre.sx, centre.sy, cell * 0.75 * centre.scale);
+        g.addColorStop(0, shade(base, 0.22)); g.addColorStop(0.55, shade(base, 0.04)); g.addColorStop(1, shade(base, -0.18));
         ctx.fillStyle = g;
-        ctx.beginPath(); ctx.moveTo(t0.sx, t0.sy); ctx.lineTo(t1.sx, t1.sy); ctx.lineTo(t2.sx, t2.sy); ctx.lineTo(t3.sx, t3.sy); ctx.closePath(); ctx.fill();
-        ctx.strokeStyle = 'rgba(0,0,0,0.35)'; ctx.lineWidth = 2; ctx.stroke();
-        // fabric detail: plaid blanket on some, piping on others
+        topPath(); ctx.fill();
+        ctx.strokeStyle = 'rgba(0,0,0,0.4)'; ctx.lineWidth = 2; ctx.stroke();
+        // fabric detail
         ctx.save();
-        ctx.clip();
+        topPath(); ctx.clip();
         if (idx % 4 === 1 || idx === 6) {
-          ctx.globalAlpha = 0.28;
+          // plaid / striped blanket thrown over this cushion
+          ctx.globalAlpha = 0.3;
           ctx.strokeStyle = idx === 6 ? '#d9b36b' : '#3a2a1a';
-          ctx.lineWidth = 2;
-          for (let k = 0; k <= 6; k++) {
-            const a = pr.project(x0 + (k / 6) * cell, h, z0), b = pr.project(x0 + (k / 6) * cell, h, z1);
+          ctx.lineWidth = 2.5;
+          for (let k = 0; k <= 8; k++) {
+            const a = pr.project(x0 + (k / 8) * cell, h, z0), b = pr.project(x0 + (k / 8) * cell, h, z1);
             ctx.beginPath(); ctx.moveTo(a.sx, a.sy); ctx.lineTo(b.sx, b.sy); ctx.stroke();
-            const c = pr.project(x0, h, z0 + (k / 6) * cell), d = pr.project(x1, h, z0 + (k / 6) * cell);
+            const c = pr.project(x0, h, z0 + (k / 8) * cell), d = pr.project(x1, h, z0 + (k / 8) * cell);
             ctx.beginPath(); ctx.moveTo(c.sx, c.sy); ctx.lineTo(d.sx, d.sy); ctx.stroke();
           }
-        } else {
           ctx.globalAlpha = 0.18;
+          ctx.strokeStyle = idx === 6 ? '#8a2a2a' : '#c9a35a';
+          ctx.lineWidth = 6;
+          for (let k = 1; k < 8; k += 3) {
+            const a = pr.project(x0 + (k / 8) * cell, h, z0), b = pr.project(x0 + (k / 8) * cell, h, z1);
+            ctx.beginPath(); ctx.moveTo(a.sx, a.sy); ctx.lineTo(b.sx, b.sy); ctx.stroke();
+          }
+        } else if (idx === 4) {
+          // curtain with a floral print in the middle cell
+          ctx.globalAlpha = 0.22;
+          for (let k = 0; k < 18; k++) {
+            const p = pr.project(x0 + 0.1 + r() * (cell - 0.2), h, z0 + 0.1 + r() * (cell - 0.2));
+            ctx.fillStyle = k % 2 ? '#c94a5a' : '#e8d070';
+            ctx.beginPath(); ctx.arc(p.sx, p.sy, 0.035 * p.scale, 0, Math.PI * 2); ctx.fill();
+          }
+        } else {
+          // upholstery weave and a tufted seam cross
+          ctx.globalAlpha = 0.14;
           ctx.strokeStyle = '#000';
-          ctx.lineWidth = 1.5;
-          for (let k = 0; k < 40; k++) {
+          ctx.lineWidth = 1.2;
+          for (let k = 0; k < 60; k++) {
             const px = x0 + ((k * 0.618) % 1) * cell, pz = z0 + ((k * 0.382) % 1) * cell;
             const p = pr.project(px, h, pz);
             ctx.beginPath(); ctx.moveTo(p.sx - 3, p.sy); ctx.lineTo(p.sx + 3, p.sy + 1); ctx.stroke();
           }
+          ctx.globalAlpha = 0.3;
+          ctx.strokeStyle = shade(base, -0.5); ctx.lineWidth = 2;
+          const sa = pr.project(x0 + 0.1, h, (z0 + z1) / 2), sb = pr.project(x1 - 0.1, h, (z0 + z1) / 2);
+          ctx.beginPath(); ctx.moveTo(sa.sx, sa.sy); ctx.lineTo(sb.sx, sb.sy); ctx.stroke();
+          const sc = pr.project((x0 + x1) / 2, h, z0 + 0.1), sd = pr.project((x0 + x1) / 2, h, z1 - 0.1);
+          ctx.beginPath(); ctx.moveTo(sc.sx, sc.sy); ctx.lineTo(sd.sx, sd.sy); ctx.stroke();
+          ctx.fillStyle = shade(base, -0.45);
+          ctx.beginPath(); ctx.arc(centre.sx, centre.sy, 0.02 * centre.scale, 0, Math.PI * 2); ctx.fill();
         }
         ctx.restore();
-        // soft highlight along the near edge
-        ctx.strokeStyle = 'rgba(255,255,255,0.18)'; ctx.lineWidth = 3;
-        ctx.beginPath(); ctx.moveTo(t0.sx, t0.sy); ctx.lineTo(t1.sx, t1.sy); ctx.stroke();
+        // piping along the top edges and a highlight on the near edge
+        ctx.strokeStyle = 'rgba(255,245,220,0.35)'; ctx.lineWidth = 2;
+        topPath(); ctx.stroke();
+        ctx.strokeStyle = 'rgba(255,255,255,0.25)'; ctx.lineWidth = 4;
+        ctx.beginPath(); ctx.moveTo(t0.sx, t0.sy); ctx.quadraticCurveTo(m01.sx, m01.sy, t1.sx, t1.sy); ctx.stroke();
+        ctx.strokeStyle = 'rgba(255,245,220,0.3)'; ctx.lineWidth = 2;
+        ctx.beginPath(); ctx.moveTo(f0.sx, f0.sy + 1); ctx.lineTo(f1.sx, f1.sy + 1); ctx.stroke();
       }
     }
-    void paintCarpet;
   }
 
   // ---------- frame ----------
