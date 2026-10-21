@@ -16,7 +16,7 @@ async function session(label, viewport, touch) {
     const g = window.__game;
     localStorage.removeItem('sports-at-academy-hill-v1');
     const match = g.registry.get('__buildMatch')('HorseScene', 'single');
-    g.scene.getScenes(true).forEach((s) => g.scene.stop(s.scene.key));
+    g.scene.getScenes(false).filter((s) => s.scene.isActive() || s.scene.isPaused()).forEach((s) => g.scene.stop(s.scene.key));
     g.scene.start('HorseScene', { match });
   });
   await page.waitForTimeout(1200);

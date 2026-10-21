@@ -1,5 +1,6 @@
 import Phaser from 'phaser';
 import { BaseGameScene } from '../../core/BaseGameScene';
+import { QUALITY } from '../../core/quality';
 import { THEME } from '../../core/constants';
 import { Projector } from '../../core/projection';
 import { Audio } from '../../core/audio';
@@ -24,7 +25,7 @@ export const HOCKEY_VISUAL = {
   /** The view zooms toward the net as the shooter skates in (landscape / portrait). */
   maxZoom: { landscape: 2.2, portrait: 2.4 },
   /** The backdrop is rasterised at this multiple of the logical size. */
-  superSample: 2,
+  superSample: QUALITY.backdropSS,
   /** Seconds the result stays on screen before the next attempt. */
   resultHold: 1500,
   introHold: 1100,

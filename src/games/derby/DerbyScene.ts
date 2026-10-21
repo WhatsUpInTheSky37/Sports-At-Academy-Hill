@@ -1,5 +1,6 @@
 import Phaser from 'phaser';
 import { BaseGameScene } from '../../core/BaseGameScene';
+import { QUALITY } from '../../core/quality';
 import { GAME_H, GAME_W, THEME } from '../../core/constants';
 import { Projector } from '../../core/projection';
 import { Audio } from '../../core/audio';
@@ -27,7 +28,7 @@ export const DERBY_VISUAL = {
   /** Delay between pitches, ms. */
   pitchGap: 900,
   /** The backdrop is rasterised at this multiple of the logical size and displayed scaled down. */
-  superSample: 2,
+  superSample: QUALITY.backdropSS,
 };
 
 /** Regulation home plate (metres): 17" across the front, 8.5" sides, 12" angled edges to the apex. */

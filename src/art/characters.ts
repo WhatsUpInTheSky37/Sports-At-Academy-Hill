@@ -1,11 +1,12 @@
 import Phaser from 'phaser';
 import { CHARACTERS, type Character, type CharacterId } from '../core/characters';
 import { createCanvas, roundRect, shade } from './canvas';
+import { QUALITY } from '../core/quality';
 
 /** Every character sheet frame is FRAME x FRAME; feet sit near y = 205, centre x = 110. */
 export const FRAME = 220;
-/** Sheets are rasterised at this multiple of FRAME so sprites stay crisp when scaled up on big screens. */
-export const SHEET_RES = 2;
+/** Sheets are rasterised at this multiple of FRAME so sprites stay crisp when scaled up on big screens (1 on phones). */
+export const SHEET_RES = QUALITY.sheetRes;
 
 export type BasePoseName =
   | 'idle0' | 'idle1' | 'run0' | 'run1' | 'run2' | 'run3' | 'swing0' | 'swing1' | 'swing2'
@@ -922,46 +923,23 @@ function drawHair(ctx: CanvasRenderingContext2D, hx: number, hy: number, r: numb
   }
 }
 
-/** Build and register a sprite sheet texture per character: key `char-<id>`, frames = pose names. */
+/**
+ * Register the cheap shared textures: every character's portrait, the drop shadow and the glow.
+ * The big pose sheets are built on demand per character (see ensureCharacterSheet) so a phone only
+ * pays for the two or four characters actually on screen.
+ */
 export function buildCharacterTextures(scene: Phaser.Scene): void {
+  const R = SHEET_RES;
   for (const id of Object.keys(CHARACTERS) as CharacterId[]) {
-    const key = `char-${id}`;
-    if (scene.textures.exists(key)) continue;
-    const ch = CHARACTERS[id];
-    // Every pose is drawn twice: facing right (default) and a true left-facing version (`L-<pose>`)
-    // so mirrored characters keep readable jersey numbers.
-    const cols = 7;
-    const frames: { name: string; pose: PoseName; facing: 1 | -1 }[] = [
-      ...POSE_NAMES.map((n) => ({ name: n, pose: n, facing: 1 as const })),
-      ...POSE_NAMES.map((n) => ({ name: `L-${n}`, pose: n, facing: -1 as const })),
-    ];
-    const rows = Math.ceil(frames.length / cols);
-    const R = SHEET_RES;
-    const { canvas, ctx } = createCanvas(cols * FRAME * R, rows * FRAME * R);
-    frames.forEach((f, i) => {
-      const col = i % cols;
-      const row = Math.floor(i / cols);
-      ctx.save();
-      ctx.translate(col * FRAME * R, row * FRAME * R);
-      ctx.scale(R, R);
-      drawCharacterFrame(ctx, ch, POSES[f.pose], f.facing);
-      ctx.restore();
-    });
-    const tex = scene.textures.addCanvas(key, canvas)!;
-    frames.forEach((f, i) => {
-      const col = i % cols;
-      const row = Math.floor(i / cols);
-      tex.add(f.name, 0, col * FRAME * R, row * FRAME * R, FRAME * R, FRAME * R);
-    });
-    // portrait (also 2x; UI code displays it at PORTRAIT_SCALE)
     const pkey = `portrait-${id}`;
+    if (scene.textures.exists(pkey)) continue;
     const p = createCanvas(120 * R, 120 * R);
     p.ctx.save();
     p.ctx.scale(R, R);
     p.ctx.translate(60, 60);
     p.ctx.scale(1.05, 1.05);
     p.ctx.translate(-110, -62);
-    drawCharacterFrame(p.ctx, ch, { ...POSES.idle0, face: 'smile' });
+    drawCharacterFrame(p.ctx, CHARACTERS[id], { ...POSES.idle0, face: 'smile' });
     p.ctx.restore();
     scene.textures.addCanvas(pkey, p.canvas);
   }
@@ -989,6 +967,49 @@ export function buildCharacterTextures(scene: Phaser.Scene): void {
   }
 }
 
+/** Texture key for a character's sheet: right-facing frames in `char-<id>`, left-facing in `char-<id>-L`. */
+export function sheetKey(id: CharacterId, facing: 1 | -1): string { return facing === -1 ? `char-${id}-L` : `char-${id}`; }
+
+/**
+ * Build a character's two pose sheets if they are not there yet. Each sheet packs the poses in a
+ * near-square grid (keeps the texture under the 4096 px limit of older GPUs even at 2x).
+ */
+export function ensureCharacterSheet(scene: Phaser.Scene, id: CharacterId): void {
+  if (scene.textures.exists(sheetKey(id, 1))) return;
+  const ch = CHARACTERS[id];
+  const R = SHEET_RES;
+  const n = POSE_NAMES.length;
+  const cols = Math.ceil(Math.sqrt(n));
+  const rows = Math.ceil(n / cols);
+  for (const facing of [1, -1] as const) {
+    const { canvas, ctx } = createCanvas(cols * FRAME * R, rows * FRAME * R);
+    POSE_NAMES.forEach((pose, i) => {
+      const col = i % cols, row = Math.floor(i / cols);
+      ctx.save();
+      ctx.translate(col * FRAME * R, row * FRAME * R);
+      ctx.scale(R, R);
+      drawCharacterFrame(ctx, ch, POSES[pose], facing);
+      ctx.restore();
+    });
+    const tex = scene.textures.addCanvas(sheetKey(id, facing), canvas)!;
+    POSE_NAMES.forEach((pose, i) => {
+      const col = i % cols, row = Math.floor(i / cols);
+      tex.add(pose, 0, col * FRAME * R, row * FRAME * R, FRAME * R, FRAME * R);
+    });
+  }
+}
+
+/** Drop the pose sheets of every character not in `keep` (they are rebuilt on demand). */
+export function purgeCharacterSheets(scene: Phaser.Scene, keep: CharacterId[]): void {
+  for (const id of Object.keys(CHARACTERS) as CharacterId[]) {
+    if (keep.includes(id)) continue;
+    for (const facing of [1, -1] as const) {
+      const key = sheetKey(id, facing);
+      if (scene.textures.exists(key)) scene.textures.remove(key);
+    }
+  }
+}
+
 /**
  * Animated character sprite with a drop shadow. Pose animations are driven by setAnim.
  */
@@ -1005,11 +1026,16 @@ export class CharacterSprite extends Phaser.GameObjects.Container {
   private holdFrame: PoseName | null = null;
   private onAnimDone?: () => void;
 
-  constructor(scene: Phaser.Scene, x: number, y: number, readonly character: Character, scale = 1) {
+  private _character: Character;
+  get character(): Character { return this._character; }
+
+  constructor(scene: Phaser.Scene, x: number, y: number, character: Character, scale = 1) {
     super(scene, x, y);
+    this._character = character;
     this._charScale = scale;
+    ensureCharacterSheet(scene, character.id);
     this.shadow = scene.add.image(0, 0, 'shadow').setScale(1.1 * scale, 0.9 * scale).setAlpha(0.9);
-    this.sprite = scene.add.image(0, -FRAME * 0.5 * scale + 14 * scale, `char-${character.id}`, 'idle0').setScale(scale / SHEET_RES);
+    this.sprite = scene.add.image(0, -FRAME * 0.5 * scale + 14 * scale, sheetKey(character.id, 1), 'idle0').setScale(scale / SHEET_RES);
     this.facing = 1;
     this.add([this.shadow, this.sprite]);
     scene.add.existing(this);
@@ -1029,15 +1055,24 @@ export class CharacterSprite extends Phaser.GameObjects.Container {
 
   private facing: 1 | -1 = 1;
   get facingDir(): 1 | -1 { return this.facing; }
-  /** Frame name for the current facing (left-facing frames are pre-drawn so numbers stay readable). */
-  private frameName(pose: PoseName): string { return this.facing === -1 ? `L-${pose}` : pose; }
+  /** Show a pose on the sheet for the current facing (left-facing frames are pre-drawn so numbers stay readable). */
+  private applyFrame(pose: PoseName): void { this.sprite.setTexture(sheetKey(this._character.id, this.facing), pose); }
+  private currentPose(): PoseName { return this.holdFrame ?? this.anim[Math.min(this.anim.length - 1, Math.floor(this.animTime * this.animFps))] ?? this.anim[0]; }
+
+  /** Swap in another character (scenes that reuse one sprite for whoever is up). */
+  setCharacter(ch: Character): this {
+    if (ch.id === this._character.id) return this;
+    ensureCharacterSheet(this.scene, ch.id);
+    this._character = ch;
+    this.applyFrame(this.currentPose());
+    return this;
+  }
 
   /** Face left (-1) or right (1). Default art faces the camera with a slight right bias. */
   setFacing(dir: 1 | -1): this {
     if (dir === this.facing) return this;
     this.facing = dir;
-    const current = this.holdFrame ?? this.anim[Math.min(this.anim.length - 1, Math.floor(this.animTime * this.animFps))] ?? this.anim[0];
-    this.sprite.setFrame(this.frameName(current));
+    this.applyFrame(this.currentPose());
     return this;
   }
 
@@ -1049,7 +1084,7 @@ export class CharacterSprite extends Phaser.GameObjects.Container {
     this.animTime = 0;
     this.holdFrame = null;
     this.onAnimDone = onDone;
-    this.sprite.setFrame(this.frameName(frames[0]));
+    this.applyFrame(frames[0]);
     return this;
   }
 
@@ -1057,7 +1092,7 @@ export class CharacterSprite extends Phaser.GameObjects.Container {
   setPose(frame: PoseName): this {
     this.holdFrame = frame;
     this.anim = [frame];
-    this.sprite.setFrame(this.frameName(frame));
+    this.applyFrame(frame);
     return this;
   }
 
@@ -1073,9 +1108,9 @@ export class CharacterSprite extends Phaser.GameObjects.Container {
     if (idx >= this.anim.length) {
       if (this.loop) {
         this.animTime = 0;
-        this.sprite.setFrame(this.frameName(this.anim[0]));
+        this.applyFrame(this.anim[0]);
       } else {
-        this.sprite.setFrame(this.frameName(this.anim[this.anim.length - 1]));
+        this.applyFrame(this.anim[this.anim.length - 1]);
         this.holdFrame = this.anim[this.anim.length - 1];
         const cb = this.onAnimDone;
         this.onAnimDone = undefined;
@@ -1083,6 +1118,6 @@ export class CharacterSprite extends Phaser.GameObjects.Container {
       }
       return;
     }
-    this.sprite.setFrame(this.frameName(this.anim[idx]));
+    this.applyFrame(this.anim[idx]);
   }
 }

@@ -1,5 +1,6 @@
 import Phaser from 'phaser';
 import { BaseGameScene } from '../../core/BaseGameScene';
+import { QUALITY } from '../../core/quality';
 import { THEME } from '../../core/constants';
 import { Projector } from '../../core/projection';
 import { Audio } from '../../core/audio';
@@ -31,7 +32,7 @@ export const FOOTBALL_VISUAL = {
   /** Swipe speed (px/s) that counts as a full-power throw. */
   swipeFullSpeed: 2600,
   /** The backdrop is rasterised at this multiple of the logical size. */
-  superSample: 2,
+  superSample: QUALITY.backdropSS,
 };
 
 interface Athlete {

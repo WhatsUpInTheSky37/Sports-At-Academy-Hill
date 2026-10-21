@@ -24,7 +24,7 @@ const startScene = async (page, key, mode = 'single') => {
     const g = window.__game;
     const mod = g.registry.get('__buildMatch');
     const match = mod(key, mode);
-    const active = g.scene.getScenes(true).map((s) => s.scene.key);
+    const active = g.scene.getScenes(false).filter((s) => s.scene.isActive() || s.scene.isPaused()).map((s) => s.scene.key);
     active.forEach((k) => g.scene.stop(k));
     g.scene.start(key, { match });
   }, [key, mode]);

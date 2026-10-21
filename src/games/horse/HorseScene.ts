@@ -263,7 +263,13 @@ export class HorseScene extends BaseGameScene {
     }
     if (this.bgImage) this.bgImage.setTexture(key);
     else this.bgImage = this.add.image(W / 2, H / 2, key).setDepth(0);
+    // one backdrop per spot adds up fast (each is a full-screen canvas): keep only the last few
+    const keep = this.bgKeys.filter((k) => k !== key);
+    keep.push(key);
+    while (keep.length > 3) { const old = keep.shift()!; if (this.textures.exists(old)) this.textures.remove(old); }
+    this.bgKeys = keep;
   }
+  private bgKeys: string[] = [];
 
   /** The side of the house along the left edge of the driveway: white siding, blue shutters, stone foundation, shrubs. */
   private paintHouseWall(ctx: CanvasRenderingContext2D, nz: number): void {
@@ -656,10 +662,8 @@ export class HorseScene extends BaseGameScene {
     this.powerText.setText('');
     const shooterChar = this.players[s.shooter].character;
     const waiterChar = this.players[s.shooter === 0 ? 1 : 0].character;
-    this.shooter.sprite.setTexture(`char-${shooterChar.id}`, 'back-shoot0');
-    this.shooter.setPose('back-shoot0');
-    this.waiter.sprite.setTexture(`char-${waiterChar.id}`, 'idle0');
-    this.waiter.idle();
+    this.shooter.setCharacter(shooterChar).setPose('back-shoot0');
+    this.waiter.setCharacter(waiterChar).idle();
     if (s.phase === 'match') {
       this.spotIndex = s.spot ?? 0;
       this.phase = 'ready';

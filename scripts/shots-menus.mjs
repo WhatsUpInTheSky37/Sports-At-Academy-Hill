@@ -13,7 +13,7 @@ for (const [label, viewport] of [['landscape', { width: 1920, height: 1080 }], [
   for (const [key, data] of shots) {
     await page.evaluate(([key, data]) => {
       const g = window.__game;
-      g.scene.getScenes(true).forEach((s) => g.scene.stop(s.scene.key));
+      g.scene.getScenes(false).filter((s) => s.scene.isActive() || s.scene.isPaused()).forEach((s) => g.scene.stop(s.scene.key));
       const bm = g.registry.get('__buildMatch');
       if (key === 'ChampionshipScene') {
         const match = bm('DerbyScene', 'single');
