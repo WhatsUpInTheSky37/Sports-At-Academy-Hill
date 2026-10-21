@@ -78,6 +78,7 @@ export class PauseScene extends Phaser.Scene {
     p = pos(2); makeButton(this, p[0], p[1], 'HOW TO PLAY', () => {
       this.scene.stop();
       this.scene.launch('HowToScene', { gameId: data.match.gameId, parent: data.parent, mode: data.match.mode });
+      this.scene.bringToTop('HowToScene');
     }, { width: bw, height: 90, fontSize: 30, color: 0x4fc3f7 });
     p = pos(3); makeButton(this, p[0], p[1], 'MAIN MENU', () => {
       this.scene.stop(data.parent);

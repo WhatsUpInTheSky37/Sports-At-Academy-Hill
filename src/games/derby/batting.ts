@@ -42,7 +42,7 @@ export const DEFAULT_BATTING: BattingConfig = {
   boundaryZ: 45,
   treeHeight: 2.6,
   minExitSpeed: 18,
-  maxExitSpeed: 36,
+  maxExitSpeed: 35,
   baseLaunchDeg: 27,
   launchRangeDeg: 24,
   aimLateralDeg: 12,
@@ -174,8 +174,8 @@ export function gaussian(sd: number): number {
 
 /** AI swing parameters per difficulty level (0 easy .. 1 hard). */
 export function aiSwing(level: number): { offsetMs: number; aimX: number; aimY: number } {
-  const timingSd = 135 - level * 85;   // 135 / 92 / 50 ms
-  const aimSd = 0.32 - level * 0.2;     // 0.32 / 0.22 / 0.12
+  const timingSd = 165 - level * 95;   // 165 / 118 / 70 ms  -> roughly 20% / 40% / 70% home runs
+  const aimSd = 0.42 - level * 0.24;    // 0.42 / 0.30 / 0.18
   return { offsetMs: gaussian(timingSd), aimX: gaussian(aimSd), aimY: gaussian(aimSd) };
 }
 

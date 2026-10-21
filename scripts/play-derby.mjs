@@ -1,6 +1,6 @@
 // Plays a full derby match against the CPU by pressing SPACE on a timer; verifies the result screen appears.
 import { chromium } from 'playwright';
-const base = process.argv[2] ?? 'http://localhost:4173/';
+const base = process.argv[2] ?? 'http://localhost:4173/?renderer=canvas';
 const browser = await chromium.launch({ executablePath: '/opt/pw-browsers/chromium', args: ['--use-gl=swiftshader', '--enable-unsafe-swiftshader'] });
 const page = await browser.newPage({ viewport: { width: 1920, height: 1080 } });
 const errors = [];

@@ -145,12 +145,14 @@ export abstract class BaseGameScene extends Phaser.Scene {
   protected showHelp(onClose?: () => void): void {
     if (this.scene.isActive('HowToScene')) return;
     this.scene.launch('HowToScene', { gameId: this.gameId, parent: this.scene.key, mode: this.match.mode, onClose });
+    this.scene.bringToTop('HowToScene');
     this.scene.pause();
   }
 
   protected pauseGame(): void {
     if (this.finished || this.scene.isActive('PauseScene') || this.scene.isActive('HowToScene') || this.scene.isActive('ResultScene')) return;
     this.scene.launch('PauseScene', { parent: this.scene.key, match: this.match });
+    this.scene.bringToTop('PauseScene');
     this.scene.pause();
   }
 
@@ -187,6 +189,7 @@ export abstract class BaseGameScene extends Phaser.Scene {
     Audio.sfx('win');
     this.time.delayedCall(900, () => {
       this.scene.launch('ResultScene', { parent: this.scene.key, match: this.match, result });
+      this.scene.bringToTop('ResultScene');
       this.scene.pause();
     });
   }

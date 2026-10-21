@@ -21,8 +21,11 @@ import { DartsScene } from './games/darts/DartsScene';
 const initial = desiredSize();
 setLogicalSize(initial.w, initial.h);
 
+// `?renderer=canvas` forces the Canvas renderer (useful for headless smoke tests and very old GPUs).
+const forceCanvas = new URLSearchParams(window.location.search).get('renderer') === 'canvas';
+
 const config: Phaser.Types.Core.GameConfig = {
-  type: Phaser.AUTO,
+  type: forceCanvas ? Phaser.CANVAS : Phaser.AUTO,
   parent: 'game',
   width: GAME_W,
   height: GAME_H,

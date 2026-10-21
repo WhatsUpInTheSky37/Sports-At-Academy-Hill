@@ -23,7 +23,7 @@ export const DERBY_VISUAL = {
   /** Keyboard aim speed px/s. */
   aimSpeed: 650,
   /** Delay between pitches, ms. */
-  pitchGap: 1300,
+  pitchGap: 900,
 };
 
 type Phase = 'idle' | 'windup' | 'pitch' | 'flight' | 'result' | 'switch' | 'done';
@@ -366,7 +366,7 @@ export class DerbyScene extends BaseGameScene {
       this.aiTarget = null;
     }
     this.timingLabel.setText('');
-    this.time.delayedCall(650, () => this.releasePitch());
+    this.time.delayedCall(500, () => this.releasePitch());
   }
 
   private releasePitch(): void {
@@ -433,7 +433,7 @@ export class DerbyScene extends BaseGameScene {
       this.feedback.setText('Took the pitch. No out.').setColor('#ffffff');
     }
     this.refreshHud();
-    this.time.delayedCall(1300, () => {
+    this.time.delayedCall(1100, () => {
       this.batter.setPose('back-swing0');
       this.positionBat('swing0');
       if (this.state.phase === 'done') return this.endMatch();
