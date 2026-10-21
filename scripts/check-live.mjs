@@ -1,0 +1,13 @@
+import { chromium } from 'playwright';
+const url = process.argv[2] ?? 'https://whatsupinthesky37.github.io/Sports-At-Academy-Hill/';
+const browser = await chromium.launch({ executablePath: '/opt/pw-browsers/chromium', args: ['--use-gl=swiftshader', '--enable-unsafe-swiftshader'] });
+const page = await browser.newPage({ viewport: { width: 1920, height: 1080 } });
+page.on('pageerror', (e) => console.log('PAGEERROR', e.message, (e.stack || '').split('\n').slice(0, 4).join(' | ')));
+page.on('console', (m) => { if (m.type() === 'error' || m.type() === 'warning') console.log('CONSOLE', m.type(), m.text().slice(0, 300)); });
+page.on('requestfailed', (r) => console.log('REQFAIL', r.url(), r.failure()?.errorText));
+page.on('response', (r) => { if (r.status() >= 400) console.log('HTTP', r.status(), r.url()); });
+await page.goto(url, { waitUntil: 'networkidle' });
+await page.waitForTimeout(6000);
+console.log('scenes active:', await page.evaluate(() => window.__game ? window.__game.scene.getScenes(true).map((s) => s.scene.key) : 'NO GAME OBJECT'));
+await page.screenshot({ path: 'smoke-output/live.png' });
+await browser.close();
