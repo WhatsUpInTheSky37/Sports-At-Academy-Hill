@@ -17,14 +17,21 @@ import { canCatch, dist, isTouch, leadPoint, makePass, moveByInput, moveToward, 
 
 /** Visual tuning for the football scene. */
 export const FOOTBALL_VISUAL = {
-  camZ: 7.5,
-  camH: 2.7,
+  /** Camera behind and above the quarterback. */
+  camZ: 9.5,
+  camH: 4.0,
   /** Seconds before an AI offence snaps. */
   aiSnapDelay: 1.3,
   /** Seconds the play result stays on screen. */
   deadBallPause: 1700,
   /** Touch grace after an interception (new defenders cannot touch the returner instantly). */
   interceptGrace: 0.7,
+  /** A pointer that moves more than this (logical px) is a swipe, not a press. */
+  swipePx: 40,
+  /** Swipe speed (px/s) that counts as a full-power throw. */
+  swipeFullSpeed: 2600,
+  /** The backdrop is rasterised at this multiple of the logical size. */
+  superSample: 2,
 };
 
 interface Athlete {
@@ -42,7 +49,18 @@ interface Athlete {
   role: 'cover' | 'rush';
 }
 
+interface Gesture { id: number; x0: number; y0: number; t0: number; x: number; y: number; moved: boolean; }
+
 type Phase = 'pre' | 'live' | 'dead' | 'done';
+
+/** Polyline strokes for the yard numbers, in a 1 x 1 box (x right, y down = toward the camera). */
+const DIGITS: Record<string, [number, number][][]> = {
+  '0': [[[0, 0], [1, 0], [1, 1], [0, 1], [0, 0]]],
+  '1': [[[0.5, 0], [0.5, 1]]],
+  '2': [[[0, 0], [1, 0], [1, 0.5], [0, 0.5], [0, 1], [1, 1]]],
+  '3': [[[0, 0], [1, 0], [1, 1], [0, 1]], [[0, 0.5], [1, 0.5]]],
+  '4': [[[0, 0], [0, 0.5], [1, 0.5]], [[1, 0], [1, 1]]],
+};
 
 export class FootballScene extends BaseGameScene {
   readonly gameId = 'football' as const;
@@ -68,10 +86,12 @@ export class FootballScene extends BaseGameScene {
   private graceT = 0;
   private charging = false;
   private chargeT = 0;
+  private gesture: Gesture | null = null;
   private qbThrowRequested = false;
   private aiQbDecision = 0;
   private fieldG!: Phaser.GameObjects.Graphics;
   private cueG!: Phaser.GameObjects.Graphics;
+  private ringG!: Phaser.GameObjects.Graphics;
   private miniG!: Phaser.GameObjects.Graphics;
   private miniRect = new Phaser.Geom.Rectangle(0, 0, 100, 240);
   private ballImg!: Phaser.GameObjects.Image;
@@ -87,13 +107,17 @@ export class FootballScene extends BaseGameScene {
 
   create(): void {
     this.setupShell({ music: 'outdoor' });
+    // the scene instance is reused on rematch: reset everything create() does not assign
+    this.phase = 'pre'; this.holder = null; this.pass = null; this.passTarget = null; this.controlled = [null, null]; this.ctrl = [null, null];
+    this.charging = false; this.gesture = null; this.sideSwitch = 1; this.noticeT = 0;
     const W = this.W, H = this.H, P = this.portrait;
     this.fieldTop = this.hudBottom - 30;
     this.fieldBottom = P ? H - 300 : H - 150;
-    const horizon = this.fieldTop + (this.fieldBottom - this.fieldTop) * 0.3;
+    const horizon = this.fieldTop + (this.fieldBottom - this.fieldTop) * (P ? 0.26 : 0.3);
     this.proj = new Projector({ camZ: FOOTBALL_VISUAL.camZ, camH: FOOTBALL_VISUAL.camH, horizonY: horizon, focal: P ? 1150 : 1050, cx: W / 2 });
     this.paintBackground();
     this.fieldG = this.add.graphics().setDepth(2);
+    this.ringG = this.add.graphics().setDepth(30);
     this.cueG = this.add.graphics().setDepth(40);
     this.ballShadow = this.add.image(0, 0, 'shadow').setDepth(20).setVisible(false);
     this.ballImg = this.add.image(0, 0, 'football').setDepth(600).setVisible(false);
@@ -101,8 +125,13 @@ export class FootballScene extends BaseGameScene {
     this.dir = attackDir(this.state.offense);
     this.buildAthletes();
     this.buildUi();
-    this.ctrl[0] = this.makeControls(0, { labels: { a: 'SNAP / PASS', b: 'SWITCH' } });
-    if (this.match.mode === 'local') this.ctrl[1] = this.makeControls(1, { labels: { a: 'SNAP / PASS', b: 'SWITCH' } });
+    const joyArea = P ? { x: 0, y: H * 0.6, w: W * 0.5, h: H * 0.4 } : { x: 0, y: H * 0.5, w: W * 0.38, h: H * 0.5 };
+    this.ctrl[0] = this.makeControls(0, { labels: { b: 'SWITCH' }, joyArea });
+    if (this.match.mode === 'local') this.ctrl[1] = this.makeControls(1, { labels: { b: 'SWITCH' }, touch: false });
+    this.input.on('pointerdown', (p: Phaser.Input.Pointer) => this.onPointerDown(p));
+    this.input.on('pointermove', (p: Phaser.Input.Pointer) => this.onPointerMove(p));
+    this.input.on('pointerup', (p: Phaser.Input.Pointer) => this.onPointerUp(p));
+    this.input.on('pointerupoutside', (p: Phaser.Input.Pointer) => this.onPointerUp(p));
     this.refreshHud();
     this.beginAfterHowTo(() => this.setupFormation());
   }
@@ -137,7 +166,7 @@ export class FootballScene extends BaseGameScene {
     panel.fillRoundedRect(W / 2 - mw / 2 - 20, my - 48, mw + 40, 96, 16);
     panel.lineStyle(3, THEME.accent, 0.8);
     panel.strokeRoundedRect(W / 2 - mw / 2 - 20, my - 48, mw + 40, 96, 16);
-    this.meterLabel = this.add.text(W / 2 - mw / 2, my - 34, 'PASS POWER', displayStyle(20, '#f5c518', { strokeThickness: 0 })).setOrigin(0, 0).setDepth(901);
+    this.meterLabel = this.add.text(W / 2 - mw / 2, my - 34, 'THROW POWER', displayStyle(20, '#f5c518', { strokeThickness: 0 })).setOrigin(0, 0).setDepth(901);
     this.meter = new Meter(this, W / 2 - mw / 2, my - 4, mw, 24, { depth: 901, bg: 0x2a2a2a, fg: 0xf5c518 });
     this.meter.set(0);
     this.prompt = this.add.text(W / 2, my + 30, '', textStyle(20, '#fff3c4')).setOrigin(0.5).setDepth(901);
@@ -148,77 +177,85 @@ export class FootballScene extends BaseGameScene {
     const mmY = P ? this.hudBottom - 20 : 140;
     this.miniRect = new Phaser.Geom.Rectangle(mmX, mmY, mmW, mmH);
     this.miniG = this.add.graphics().setDepth(9100);
-    this.targetLabel = this.add.text(0, 0, 'PASS TARGET', displayStyle(18, '#4ff0ff', { strokeThickness: 3 })).setOrigin(0.5, 1).setDepth(650).setVisible(false);
-    // Hint panel bottom-left (keyboard only; touch buttons carry their own labels)
+    this.targetLabel = this.add.text(0, 0, 'YOUR RECEIVER', displayStyle(18, '#4ff0ff', { strokeThickness: 3 })).setOrigin(0.5, 1).setDepth(650).setVisible(false);
+    // Hint panel bottom-left (keyboard only; touch players get the stick and prompts)
     if (touch) return;
-    const hw = P ? 300 : 320;
+    const hw = P ? 300 : 360;
     const hx = 30, hy = P ? H - 150 : H - 118;
     const hint = this.add.graphics().setDepth(900);
     hint.fillStyle(0x0d1f10, 0.8);
     hint.fillRoundedRect(hx, hy, hw, 96, 16);
     hint.lineStyle(3, THEME.accent, 0.8);
     hint.strokeRoundedRect(hx, hy, hw, 96, 16);
-    this.add.text(hx + hw / 2, hy + 12, 'MOVE', displayStyle(20, '#f5c518', { strokeThickness: 0 })).setOrigin(0.5, 0).setDepth(901);
-    this.add.text(hx + hw / 2, hy + 44, this.match.mode === 'local' ? 'P1 WASD + F/G  •  P2 arrows + , .' : 'WASD  •  F snap/pass  •  G switch', textStyle(19, '#ffffff')).setOrigin(0.5, 0).setDepth(901);
+    this.add.text(hx + hw / 2, hy + 10, 'CONTROLS', displayStyle(20, '#f5c518', { strokeThickness: 0 })).setOrigin(0.5, 0).setDepth(901);
+    this.add.text(hx + hw / 2, hy + 38, this.match.mode === 'local' ? 'P1 WASD + F/G  •  P2 arrows + , .\nor press-hold on the field to throw there' : 'WASD move  •  F hike / hold to throw  •  G switch\nor press-hold / swipe on the field to throw there', textStyle(16, '#ffffff', { align: 'center' })).setOrigin(0.5, 0).setDepth(901);
   }
 
+  /** Sky, the neighbourhood beyond the back fence, and the grass. Painted at 2x for crisp detail. */
   private paintBackground(): void {
     const W = this.W, H = this.H;
-    const key = `football-bg-${W}x${H}`;
+    const SS = FOOTBALL_VISUAL.superSample;
+    const key = `football-bg-${W}x${H}@${SS}`;
     if (!this.textures.exists(key)) {
-      const { canvas, ctx } = createCanvas(W, H);
+      const { canvas, ctx } = createCanvas(W * SS, H * SS);
+      ctx.scale(SS, SS);
       const pr = this.proj;
       const horizon = pr.cam.horizonY;
       const r = rng(41);
       paintSkyHD(ctx, W, H, horizon + 2, { sunX: W * 0.22, sunY: horizon * 0.26, seed: 23 });
-      // The neighbourhood beyond the back fence: a hazy tree line, then rooftops and houses in front of it.
-      const far = pr.scaleAt(70);
+      // the big woods on the far side of the neighbourhood, hazy
       const woods: { x: number; z: number; s: number; seed: number }[] = [];
-      for (let i = 0; i < 44; i++) woods.push({ x: -110 + i * 5.2 + r() * 3, z: 88 + r() * 50, s: 8 + r() * 7, seed: 100 + i });
+      for (let i = 0; i < 48; i++) woods.push({ x: -120 + i * 5.2 + r() * 3, z: 80 + r() * 40, s: 9 + r() * 7, seed: 100 + i });
       woods.sort((a, b) => b.z - a.z).forEach((t) => {
         const p = pr.project(t.x, 0, t.z);
-        const haze = Math.min(0.78, 0.3 + (t.z - 80) / 80);
+        const haze = Math.min(0.75, 0.3 + (t.z - 78) / 70);
         if (t.seed % 3 === 0) paintPineHD(ctx, p.sx, p.sy, t.s * 1.25 * p.scale, t.seed, { haze });
         else paintTreeHD(ctx, p.sx, p.sy, t.s * p.scale, t.seed, { haze });
       });
+      // the row of houses whose backyards meet the field
       const houses: { x: number; z: number; w: number; seed: number }[] = [];
-      for (let i = 0; i < 9; i++) houses.push({ x: -62 + i * 15.5 + (r() - 0.5) * 3, z: 74 + r() * 8, w: 11 + r() * 4, seed: 300 + i });
+      for (let i = 0; i < 9; i++) houses.push({ x: -58 + i * 14.5 + (r() - 0.5) * 2.5, z: 62 + r() * 6, w: 11.5 + r() * 3.5, seed: 300 + i });
       houses.sort((a, b) => b.z - a.z).forEach((hs, i) => {
         const p = pr.project(hs.x, 0, hs.z);
         const sc = p.scale;
-        const haze = Math.min(0.5, 0.18 + (hs.z - 74) / 40);
-        paintHouseHD(ctx, p.sx - (hs.w / 2) * sc, p.sy - 6.2 * sc, hs.w * sc, 6.2 * sc, { siding: ['#efe6cf', '#d9e4f0', '#e6d2c0', '#d3e3cf', '#f1dede'][i % 5], roof: ['#5a4238', '#3f3a44', '#6a4a3a'][i % 3], haze, seed: hs.seed, garage: i % 3 === 1 });
-        // a yard tree or two in front of each house
-        if (r() > 0.4) paintTreeHD(ctx, p.sx + (r() - 0.5) * hs.w * 0.9 * sc, p.sy + 0.4 * sc, (5 + r() * 3) * sc, hs.seed + 7, { haze: haze * 0.6 });
+        const haze = Math.min(0.4, 0.12 + (hs.z - 62) / 40);
+        paintHouseHD(ctx, p.sx - (hs.w / 2) * sc, p.sy - 6.6 * sc, hs.w * sc, 6.6 * sc, { siding: ['#efe6cf', '#d9e4f0', '#e6d2c0', '#d3e3cf', '#f1dede'][i % 5], roof: ['#5a4238', '#3f3a44', '#6a4a3a'][i % 3], haze, seed: hs.seed, garage: i % 3 === 1 });
+        if (r() > 0.35) paintTreeHD(ctx, p.sx + (r() - 0.5) * hs.w * 0.9 * sc, p.sy + 0.4 * sc, (5 + r() * 3) * sc, hs.seed + 7, { haze: haze * 0.6 });
       });
-      paintHaze(ctx, W, horizon, 100);
-      // the grassy field itself (static texture; the yard lines are drawn per frame on top)
-      paintLawnHD(ctx, pr, { x0: -40, x1: 40, z0: -6, z1: 66 }, { seed: 13, base: '#5a9838', stripeWidth: 4.6, tuftDensity: 0.55 });
-      // worn dirt where the kids play down the middle of the field
-      for (let i = 0; i < 26; i++) {
-        const wx = (r() - 0.5) * 8, wz = 2 + r() * 50;
+      paintHaze(ctx, W, horizon, 90);
+      // the grassy field itself (static texture; the chalk is drawn per frame on top)
+      paintLawnHD(ctx, pr, { x0: -44, x1: 44, z0: -8, z1: 60 }, { seed: 13, base: '#5a9838', stripeWidth: 5, tuftDensity: 1.4 });
+      // worn dirt down the middle where the kids play most
+      for (let i = 0; i < 30; i++) {
+        const wx = (r() - 0.5) * 9, wz = 2 + r() * 48;
         const p = pr.project(wx, 0, wz);
         if (!p.visible) continue;
         const rad = (1.2 + r() * 2.2) * p.scale;
         const pg = ctx.createRadialGradient(p.sx, p.sy, 0, p.sx, p.sy, rad);
-        pg.addColorStop(0, 'rgba(150,120,70,0.32)');
-        pg.addColorStop(0.6, 'rgba(130,110,60,0.14)');
+        pg.addColorStop(0, 'rgba(150,120,70,0.3)');
+        pg.addColorStop(0.6, 'rgba(130,110,60,0.13)');
         pg.addColorStop(1, 'rgba(130,110,60,0)');
         ctx.fillStyle = pg;
         ctx.beginPath(); ctx.ellipse(p.sx, p.sy, rad, rad * 0.4, 0, 0, Math.PI * 2); ctx.fill();
       }
-      // back fence along the far end of the field, with a gate and a shed behind it
-      const fenceP = pr.project(0, 0, 66);
-      const fh = Math.max(16, 1.9 * fenceP.scale);
+      // back fence along the far end of the field
+      const fenceP = pr.project(0, 0, 56);
+      const fh = Math.max(18, 2.0 * fenceP.scale);
       paintFenceHD(ctx, -10, W + 10, fenceP.sy, fh, 17);
+      // a few trees along the far fence line
+      for (let x = -40; x <= 40; x += 11) {
+        const p = pr.project(x + (r() - 0.5) * 3, 0, 57 + r() * 2);
+        if (r() > 0.5) paintTreeHD(ctx, p.sx, p.sy, (6 + r() * 4) * p.scale, 700 + x, { haze: 0.1 });
+        else paintPineHD(ctx, p.sx, p.sy, (7 + r() * 3) * p.scale, 700 + x, { haze: 0.1 });
+      }
       // framing trees close to the camera at the left and right edges
-      paintTreeHD(ctx, -30, horizon + 70, 360, 91);
-      paintTreeHD(ctx, W + 30, horizon + 60, 340, 92);
-      paintPineHD(ctx, 60, horizon + 120, 230, 93);
-      paintVignette(ctx, W, H, 0.22);
+      paintTreeHD(ctx, -30, horizon + 90, 420, 91);
+      paintTreeHD(ctx, W + 30, horizon + 80, 400, 92);
+      paintPineHD(ctx, 70, horizon + 150, 260, 93);
+      paintVignette(ctx, W, H, 0.2);
       this.textures.addCanvas(key, canvas);
     }
-    this.add.image(W / 2, H / 2, key).setDepth(0);
+    this.add.image(W / 2, H / 2, key).setDepth(0).setScale(1 / SS);
   }
 
   // ---------- Formation / play flow ----------
@@ -242,6 +279,9 @@ export class FootballScene extends BaseGameScene {
     def[0].role = 'cover';
     this.place(def[1], -2 * side, L + 2.6 * d);
     def[1].role = 'rush';
+    // the offence faces downfield (away from the camera); the defence faces the offence (toward it)
+    for (const a of off) { a.away = true; a.flip = 1; }
+    for (const a of def) { a.away = false; a.flip = 1; }
     // route for the receiver
     const routes: RouteName[] = ['go', 'slant', 'out', 'curl', 'post', 'drag'];
     wr.routeName = routes[Math.floor(Math.random() * routes.length)];
@@ -260,6 +300,7 @@ export class FootballScene extends BaseGameScene {
     this.passUsed = false;
     this.charging = false;
     this.chargeT = 0;
+    this.gesture = null;
     this.qbThrowRequested = false;
     this.aiQbDecision = 1.6 - this.ai * 0.8 + Math.random() * 0.5;
     this.ball = { x: qb.x, y: qb.y, z: 1 };
@@ -270,8 +311,11 @@ export class FootballScene extends BaseGameScene {
     this.meterLabel.setVisible(false);
     this.refreshHud();
     const humanOff = !this.isAI(s.offense);
-    this.setStatus(humanOff ? `${this.name(s.offense)}: press SNAP to start the play` : `${this.name(s.offense)} has the ball — get ready!`);
-    this.prompt.setText(humanOff ? 'SNAP, then run or hold PASS to charge a throw to your teammate' : 'Touch the ball carrier to stop the play');
+    const touch = this.useTouch;
+    this.setStatus(humanOff ? `${this.name(s.offense)}: ${touch ? 'tap the field to HIKE' : 'press F to HIKE (or tap the field)'}` : `${this.name(s.offense)} has the ball — get ready!`);
+    this.prompt.setText(humanOff
+      ? (touch ? 'After the hike: press-hold or swipe on the field to throw there' : 'After the hike: hold F to throw to your receiver, or press-hold on the field')
+      : (touch ? 'Stick moves your defender • tap the field to switch' : 'Touch the ball carrier to stop the play • G switches'));
   }
 
   private place(a: Athlete, x: number, y: number): void {
@@ -285,12 +329,30 @@ export class FootballScene extends BaseGameScene {
     this.graceT = 0;
     Audio.sfx('click');
     const off = this.state.offense;
-    this.setStatus(!this.isAI(off) ? 'Run, or hold PASS to charge a throw' : 'Defend! Touch the ball carrier');
+    const touch = this.useTouch;
+    this.setStatus(!this.isAI(off) ? (touch ? 'Run with the stick, or press-hold / swipe where to throw' : 'Run, or hold F / press-hold on the field to throw') : 'Defend! Touch the ball carrier');
     this.prompt.setText(this.state.returning ? '' : 'One forward pass per play, from behind the line');
   }
 
-  private throwPass(qb: Athlete, target: Athlete, power: number, errorYards = 0): void {
+  /** Throw to a spot on the field with a given power (0..1). The teammate becomes the intended receiver. */
+  private throwPassTo(qb: Athlete, spot: Vec, power: number): void {
     if (this.passUsed) return;
+    const mate = this.athletes.find((a) => a.team === qb.team && a !== qb)!;
+    const to = { x: clampX(spot.x, this.cfg), y: Math.max(-this.cfg.endZone + 0.5, Math.min(this.cfg.fieldLength + this.cfg.endZone - 0.5, spot.y)) };
+    this.pass = makePass({ x: qb.x, y: qb.y }, to, this.cfg, power);
+    this.passTarget = mate;
+    this.passUsed = true;
+    this.holder = null;
+    this.charging = false;
+    this.meter.setVisible(false);
+    this.meterLabel.setVisible(false);
+    qb.sprite.setAnim(qb.away ? ['back-throw0', 'back-throw1'] : ['throw0', 'throw1'], 8, false);
+    Audio.sfx('throw');
+    this.setStatus(power > 0.7 ? 'Bullet pass!' : power > 0.35 ? 'Pass is in the air!' : 'Lob pass...');
+  }
+
+  /** Throw toward the receiver's lead point (keyboard / CPU), with optional aim error in yards. */
+  private throwToReceiver(qb: Athlete, target: Athlete, power: number, errorYards = 0): void {
     const lead = 1.5 + power * this.cfg.passMaxLead;
     const lp = leadPoint(target, lead, this.cfg);
     if (errorYards > 0) {
@@ -299,16 +361,7 @@ export class FootballScene extends BaseGameScene {
       lp.x = clampX(lp.x + Math.cos(a) * e, this.cfg);
       lp.y += Math.sin(a) * e;
     }
-    this.pass = makePass({ x: qb.x, y: qb.y }, lp, this.cfg);
-    this.passTarget = target;
-    this.passUsed = true;
-    this.holder = null;
-    this.charging = false;
-    this.meter.setVisible(false);
-    this.meterLabel.setVisible(false);
-    qb.sprite.setAnim(qb.away ? ['back-throw0', 'back-throw1'] : ['throw0', 'throw1'], 8, false);
-    Audio.sfx('throw');
-    this.setStatus('Pass is in the air!');
+    this.throwPassTo(qb, lp, power);
   }
 
   private endPlayWith(outcome: Parameters<typeof endPlay>[1]): void {
@@ -318,6 +371,7 @@ export class FootballScene extends BaseGameScene {
     const prevScores = [...this.state.scores];
     this.state = endPlay(this.state, outcome, this.cfg);
     this.charging = false;
+    this.gesture = null;
     this.meter.setVisible(false);
     this.meterLabel.setVisible(false);
     this.targetLabel.setVisible(false);
@@ -332,7 +386,6 @@ export class FootballScene extends BaseGameScene {
       confetti(this, this.W / 2, this.fieldTop + 200, 60);
       this.react(who, 'cheer', sp.sprite.x, sp.sprite.y - 120);
       Audio.sfx('cheer');
-      if (who !== prevOffense && outcome.type !== 'safety' && !this.state.returning) { /* pick-six already announced */ }
     } else {
       this.announce(ev, { size: this.portrait ? 40 : 52, y: this.fieldTop + 180, hold: 1100 });
       if (this.state.offense !== prevOffense && !this.state.returning) Audio.sfx('groan');
@@ -365,6 +418,96 @@ export class FootballScene extends BaseGameScene {
     this.setSub(`${this.name(s.offense).toUpperCase()} BALL  •  ${downTxt}  •  ${describeYard(s.offense, s.lineOfScrimmage, this.cfg)}  •  ${ytg} to go`);
   }
 
+  // ---------- Pointer gestures: tap to hike, press-hold / swipe to throw, tap to switch on defence ----------
+  private onField(x: number, y: number): boolean {
+    if (y < this.fieldTop || y > this.fieldBottom + (this.portrait ? 120 : 60)) return false;
+    if (this.useTouch && this.ctrl[0]?.inJoyArea(x, y)) return false;
+    // keep clear of the touch buttons (bottom-right cluster)
+    if (this.useTouch && x > this.W - 260 && y > this.H - 300) return false;
+    return true;
+  }
+
+  /** The human slot whose turn the pointer belongs to: the offence's human if any, else the defence's. */
+  private pointerSlot(): 0 | 1 | null {
+    const off = this.state.offense;
+    if (!this.isAI(off)) return off as 0 | 1;
+    const def = other(off);
+    if (!this.isAI(def)) return def as 0 | 1;
+    return null;
+  }
+
+  private onPointerDown(p: Phaser.Input.Pointer): void {
+    if (this.finished || !this.onField(p.x, p.y)) return;
+    const slot = this.pointerSlot();
+    if (slot === null) return;
+    Audio.unlock();
+    const off = this.state.offense;
+    if (this.phase === 'pre') {
+      if ((slot as Team) === off) { this.snap(); this.gesture = null; }
+      return;
+    }
+    if (this.phase !== 'live') return;
+    this.gesture = { id: p.id, x0: p.x, y0: p.y, t0: this.time.now, x: p.x, y: p.y, moved: false };
+    const a = this.controlled[slot];
+    if (a && this.holder === a && (a.team as Team) === off && !this.passUsed && !this.state.returning) {
+      if (canForwardPass(off, a.y, this.state.lineOfScrimmage)) {
+        this.charging = true; this.chargeT = 0;
+        this.meter.setVisible(true); this.meterLabel.setVisible(true);
+      } else {
+        this.notice('Past the line — run it!');
+        this.gesture = null;
+      }
+    }
+  }
+
+  private onPointerMove(p: Phaser.Input.Pointer): void {
+    const g = this.gesture;
+    if (!g || g.id !== p.id) return;
+    g.x = p.x; g.y = p.y;
+    if (Math.hypot(p.x - g.x0, p.y - g.y0) > FOOTBALL_VISUAL.swipePx) g.moved = true;
+  }
+
+  private onPointerUp(p: Phaser.Input.Pointer): void {
+    const g = this.gesture;
+    if (!g || g.id !== p.id) return;
+    this.gesture = null;
+    g.x = p.x; g.y = p.y;
+    const slot = this.pointerSlot();
+    if (slot === null || this.phase !== 'live') { this.charging = false; return; }
+    const a = this.controlled[slot];
+    const off = this.state.offense;
+    if (this.charging && a && this.holder === a) {
+      // throw to the spot under the finger; power from the hold time, or from the swipe speed
+      const hold = Math.min(1, this.chargeT / this.cfg.chargeTime);
+      const dt = Math.max(0.03, (this.time.now - g.t0) / 1000);
+      const swipeLen = Math.hypot(g.x - g.x0, g.y - g.y0);
+      const swipe = g.moved ? Math.min(1, (swipeLen / dt - 300) / FOOTBALL_VISUAL.swipeFullSpeed) : 0;
+      const power = Math.max(0.12, hold, swipe);
+      const spot = this.screenToField(g.x, g.y);
+      this.charging = false;
+      if (!canForwardPass(off, a.y, this.state.lineOfScrimmage)) { this.notice('Crossed the line — pass is off!'); this.meter.setVisible(false); this.meterLabel.setVisible(false); return; }
+      this.throwPassTo(a, spot, power);
+      return;
+    }
+    this.charging = false;
+    // defence: a short tap switches to the defender nearest the ball
+    if (a && (a.team as Team) !== off && !g.moved && this.time.now - g.t0 < 350) this.switchToNearest(slot);
+  }
+
+  /** Screen point -> field coordinates on the ground (far taps clamp to a long throw downfield). */
+  private screenToField(sx: number, sy: number): Vec {
+    const u = this.proj.unprojectGround(sx, sy);
+    const cam = this.proj.cam;
+    let wx: number, wz: number;
+    if (!u) {
+      // above the horizon: throw as far as the field allows in that direction
+      const scale = cam.focal / 60;
+      wx = (sx - cam.cx) / scale;
+      wz = 60 - cam.camZ;
+    } else { wx = u.x; wz = Math.min(u.z, 60); }
+    return { x: (wx + this.camXw) * this.dir, y: wz * this.dir + this.camY };
+  }
+
   // ---------- Per frame ----------
   update(_t: number, dtMs: number): void {
     if (!this.started || this.finished) return;
@@ -390,7 +533,6 @@ export class FootballScene extends BaseGameScene {
   private updatePre(dt: number): void {
     this.preT += dt;
     const off = this.state.offense;
-    // humans may move a little pre-snap (receiver can line up); keep behind the line
     for (const slot of [0, 1] as const) {
       const c = this.ctrl[slot];
       const a = this.controlled[slot];
@@ -410,12 +552,20 @@ export class FootballScene extends BaseGameScene {
     Audio.sfx('tick');
   }
 
+  private switchToNearest(slot: 0 | 1): void {
+    const cur = this.controlled[slot];
+    if (!cur) return;
+    const team = cur.team;
+    const target = this.holder ? { x: this.holder.x, y: this.holder.y } : this.pass ? this.pass.to : this.ball;
+    const best = this.athletes.filter((a) => a.team === team).reduce((b, a) => (dist(a, target) < dist(b, target) ? a : b));
+    if (best !== cur) { this.controlled[slot] = best; Audio.sfx('tick'); }
+  }
+
   private updateLive(dt: number): void {
     this.playT += dt;
     if (this.graceT > 0) this.graceT -= dt;
     const s = this.state;
     const off = s.offense;
-    const d = this.dir;
     const defenders = this.athletes.filter((a) => a.team !== off);
     const offense = this.athletes.filter((a) => a.team === off);
     const human = (a: Athlete): 0 | 1 | null => (this.controlled[0] === a ? 0 : this.controlled[1] === a ? 1 : null);
@@ -426,6 +576,18 @@ export class FootballScene extends BaseGameScene {
       const c = this.ctrl[slot];
       if (c && c.justDown('b')) this.switchControlled(slot);
     }
+    // the Mississippi count, shown while the offence still has time to throw
+    if (!this.passUsed && !s.returning && this.holder && this.holder.team === off && !this.isAI(off) && this.playT < this.rushDelay() && this.noticeT <= 0) {
+      const n = Math.min(3, Math.floor(this.playT) + 1);
+      this.setStatus(`${n} Mississippi…  (throw before the rush!)`);
+    } else if (!this.passUsed && !s.returning && this.holder && this.holder.team === off && !this.isAI(off) && this.noticeT <= 0 && this.playT >= this.rushDelay() && this.playT < this.rushDelay() + 0.05) {
+      this.setStatus('RUSH IS ON!');
+    }
+    // --- pointer charge (press-hold on the field) ---
+    if (this.charging && this.gesture) {
+      this.chargeT += dt;
+      this.meter.set(Math.min(1, this.chargeT / this.cfg.chargeTime));
+    }
 
     // --- offence ---
     for (const a of offense) {
@@ -435,21 +597,23 @@ export class FootballScene extends BaseGameScene {
         moveByInput(a, ax.x, ax.y, this.cfg.playerSpeed, dt);
         const c = this.ctrl[h]!;
         if (this.holder === a) {
-          // QB / carrier with the ball
           const canPass = !this.passUsed && !s.returning && canForwardPass(off, a.y, s.lineOfScrimmage);
-          if (c.justDown('a')) {
+          // keyboard: hold the button to charge, release to throw to the receiver
+          if (!this.gesture && c.justDown('a')) {
             if (canPass) { this.charging = true; this.chargeT = 0; this.meter.setVisible(true); this.meterLabel.setVisible(true); }
             else if (!this.passUsed && !s.returning) { this.notice('Past the line — run it!'); }
           }
-          if (this.charging) {
+          if (this.charging && !this.gesture) {
             this.chargeT += dt;
             const p = Math.min(1, this.chargeT / this.cfg.chargeTime);
             this.meter.set(p);
             if (!canPass) { this.charging = false; this.meter.setVisible(false); this.meterLabel.setVisible(false); this.notice('Crossed the line — pass is off!'); }
             else if (c.justReleased('a') || !c.isDown('a')) {
               const mate = offense.find((o) => o !== a)!;
-              this.throwPass(a, mate, p);
+              this.throwToReceiver(a, mate, p);
             }
+          } else if (this.charging && this.gesture && !canPass) {
+            this.charging = false; this.gesture = null; this.meter.setVisible(false); this.meterLabel.setVisible(false); this.notice('Crossed the line — pass is off!');
           }
         } else if (this.holder && this.holder.team === off && c.justDown('a')) {
           // human controls the receiver: ask the AI QB to throw now
@@ -458,11 +622,10 @@ export class FootballScene extends BaseGameScene {
       } else if (this.holder === a) {
         this.aiCarrier(a, offense, defenders, aiSpeed, dt);
       } else if (this.pass && this.passTarget === a) {
-        moveToward(a, this.pass.to.x, this.pass.to.y, aiSpeed * 1.05, dt);
+        moveToward(a, this.pass.to.x, this.pass.to.y, aiSpeed * 1.08, dt);
       } else if (this.holder && this.holder.team === off) {
         this.aiReceiver(a, defenders, aiSpeed, dt);
       } else {
-        // ball in the air to the other guy, or returned: drift toward the ball
         moveToward(a, this.ball.x, this.ball.y, aiSpeed * 0.8, dt);
       }
     }
@@ -473,6 +636,11 @@ export class FootballScene extends BaseGameScene {
       if (h !== null) {
         const ax = this.axisFor(h);
         moveByInput(a, ax.x, ax.y, this.cfg.playerSpeed, dt);
+        if (!this.passUsed && !s.returning && this.playT < this.rushDelay()) {
+          // no crossing the line until the count is over
+          const limit = s.lineOfScrimmage + this.dir * 0.8;
+          if (this.dir === 1 ? a.y < limit : a.y > limit) a.y = limit;
+        }
       } else {
         this.aiDefender(a, defenders, offense, aiSpeed, dt);
       }
@@ -482,15 +650,12 @@ export class FootballScene extends BaseGameScene {
     if (this.holder) {
       this.ball.x = this.holder.x; this.ball.y = this.holder.y; this.ball.z = 1;
       const carrier = this.holder;
-      // touchdown
       if (crossedGoal(off, carrier.y, this.cfg)) return this.endPlayWith({ type: 'touchdown' });
-      // out of bounds
       const backLine = off === 0 ? -this.cfg.endZone : this.cfg.fieldLength + this.cfg.endZone;
       if (outOfBoundsX(carrier.x, this.cfg) || (off === 0 ? carrier.y < backLine : carrier.y > backLine)) {
         carrier.x = clampX(carrier.x, this.cfg);
         return this.endPlayWith({ type: 'outOfBounds', spot: carrier.y });
       }
-      // touch
       if (this.graceT <= 0) {
         for (const dfd of defenders) {
           if (isTouch(carrier, dfd, this.cfg)) {
@@ -506,7 +671,6 @@ export class FootballScene extends BaseGameScene {
       const pos = passPosition(this.pass);
       this.ball = pos;
       const target = this.passTarget!;
-      // interception check first for defenders near the ball
       for (const dfd of defenders) {
         const h = human(dfd);
         const radius = this.cfg.interceptRadius * (h !== null ? 1.15 : 0.65 + this.ai * 0.55);
@@ -526,7 +690,6 @@ export class FootballScene extends BaseGameScene {
         return;
       }
       if (this.pass.t >= this.pass.duration) {
-        // landed: forgiving catch if the receiver is close, else incomplete
         if (dist(pos, target) <= this.cfg.catchRadius * 1.15) {
           this.holder = target;
           this.pass = null;
@@ -554,7 +717,6 @@ export class FootballScene extends BaseGameScene {
     Audio.sfx('whistle');
     this.announce('INTERCEPTION!', { color: '#4ff0ff', size: this.portrait ? 56 : 72, y: this.fieldTop + 180, hold: 900 });
     this.react(dfd.team, 'taunt', dfd.sprite.x, dfd.sprite.y - 120);
-    // the human on the intercepting team now controls the returner
     for (const slot of [0, 1] as const) {
       if (!this.isAI(slot) && (slot as Team) === dfd.team) this.controlled[slot] = dfd;
     }
@@ -570,7 +732,6 @@ export class FootballScene extends BaseGameScene {
       if (rem <= 0.4) a.routeIdx += 1;
       return;
     }
-    // seek open space: downfield and away from the nearest defender
     const near = defenders.reduce((b, dd) => (dist(dd, a) < dist(b, a) ? dd : b), defenders[0]);
     let tx = a.x + (a.x - near.x) * 0.6;
     let ty = a.y + this.dir * 2.5 + (a.y - near.y) * 0.4;
@@ -594,13 +755,12 @@ export class FootballScene extends BaseGameScene {
       if (wantThrow && this.playT > 0.45) {
         const err = humanMate ? 0.6 : 1.4 - this.ai * 1.1;
         const spd = Math.hypot(mate.vx, mate.vy);
-        const power = Math.min(1, 0.25 + spd / this.cfg.playerSpeed * 0.5 + this.ai * 0.15);
+        const power = Math.min(1, 0.3 + spd / this.cfg.playerSpeed * 0.45 + this.ai * 0.2);
         this.qbThrowRequested = false;
-        this.throwPass(a, mate, power, err);
+        this.throwToReceiver(a, mate, power, err);
         return;
       }
       if (rushDist < 2.4 && this.playT > 0.4) {
-        // scramble sideways/back away from the rusher
         const ax = a.x - nearDef.x;
         const tx = clampX(a.x + Math.sign(ax || 1) * 3, this.cfg);
         moveToward(a, tx, a.y - this.dir * 0.8, speed, dt);
@@ -611,7 +771,6 @@ export class FootballScene extends BaseGameScene {
       }
       return;
     }
-    // running with the ball: head for the goal, steer away from defenders, stay in bounds
     let sx = 0;
     let sy = this.dir;
     for (const dd of defenders) {
@@ -630,24 +789,29 @@ export class FootballScene extends BaseGameScene {
     const d = this.dir;
     const react = 0.75 + this.ai * 0.3;
     if (this.pass) {
-      // nearest defender to the landing point goes for the ball
       const lp = this.pass.to;
       const nearest = defenders.reduce((b, dd) => (dist(dd, lp) < dist(b, lp) ? dd : b), defenders[0]);
       if (nearest === a) { moveToward(a, lp.x, lp.y, speed * react, dt); return; }
     }
     const carrier = this.holder;
+    if (carrier && a.role === 'rush' && !this.passUsed && !this.state.returning && this.playT < this.rushDelay()) {
+      // counting Mississippis: shuffle along the line, do not cross it yet
+      moveToward(a, carrier.x + (a.x - carrier.x) * 0.3, this.state.lineOfScrimmage + d * 1.2, speed * 0.6, dt, 0.3);
+      return;
+    }
     if (carrier && (this.passUsed || this.state.returning || a.role === 'rush')) {
-      // pursue: aim for where the carrier will be
       const lead = 0.25 + this.ai * 0.2;
       moveToward(a, carrier.x + carrier.vx * lead, carrier.y + carrier.vy * lead, speed * react, dt);
       return;
     }
-    // cover the receiver: stay goal-side and a step off
     const wr = offense.find((o) => o !== carrier) ?? offense[1];
     const tx = wr.x + wr.vx * (0.1 + this.ai * 0.15);
     const ty = wr.y + d * (1.6 - this.ai * 0.6);
     moveToward(a, tx, ty, speed * react, dt, 0.3);
   }
+
+  /** Seconds the rusher must wait before crossing the line (easier CPUs count slower). */
+  private rushDelay(): number { return this.cfg.rushCount + (1 - this.ai) * 0.8; }
 
   private notice(text: string): void {
     if (this.noticeT > 0) return;
@@ -679,7 +843,7 @@ export class FootballScene extends BaseGameScene {
   private segment(g: Phaser.GameObjects.Graphics, ax: number, ay: number, bx: number, by: number, chalk = true): void {
     let a = this.world(ax, ay);
     let b = this.world(bx, by);
-    const near = 0.6 - this.proj.cam.camZ + 0.6; // world z threshold so that depth stays > 0.6
+    const near = 1.2 - this.proj.cam.camZ;
     if (a.wz < near && b.wz < near) return;
     if (a.wz < near) { const t = (near - a.wz) / (b.wz - a.wz); a = { wx: a.wx + (b.wx - a.wx) * t, wz: near }; }
     if (b.wz < near) { const t = (near - b.wz) / (a.wz - b.wz); b = { wx: b.wx + (a.wx - b.wx) * t, wz: near }; }
@@ -689,7 +853,6 @@ export class FootballScene extends BaseGameScene {
       g.beginPath(); g.moveTo(pa.sx, pa.sy); g.lineTo(pb.sx, pb.sy); g.strokePath();
       return;
     }
-    // deterministic wobble keyed on the segment's world position so the lines do not shimmer between frames
     const steps = 10;
     let seed = Math.round((ax + ay * 7 + bx * 13 + by * 17) * 10) & 0x7fffffff;
     const nx = -(b.wz - a.wz), nz = b.wx - a.wx;
@@ -708,7 +871,6 @@ export class FootballScene extends BaseGameScene {
   }
 
   private quad(g: Phaser.GameObjects.Graphics, pts: [number, number][]): void {
-    // ground polygon with near clipping by dropping points behind the camera (coarse but fine for bands)
     const near = 1.2 - this.proj.cam.camZ;
     const ws = pts.map(([x, y]) => this.world(x, y));
     if (ws.every((w) => w.wz < near)) return;
@@ -721,25 +883,61 @@ export class FootballScene extends BaseGameScene {
     g.fillPath();
   }
 
+  /** Chalk yard number (two digits) centred at (x, y), `h` yards tall, readable from behind the offence. */
+  private number(g: Phaser.GameObjects.Graphics, text: string, x: number, y: number, h: number): void {
+    const w = h * 0.55, gap = h * 0.18;
+    const total = text.length * w + (text.length - 1) * gap;
+    let x0 = x - total / 2;
+    for (const ch of text) {
+      const strokes = DIGITS[ch];
+      if (strokes) {
+        for (const poly of strokes) {
+          for (let i = 1; i < poly.length; i++) {
+            const [ax, ay] = poly[i - 1], [bx, by] = poly[i];
+            // y down in the glyph = toward the camera = against the attack direction
+            this.segment(g, x0 + ax * w, y + (0.5 - ay) * h * this.dir, x0 + bx * w, y + (0.5 - by) * h * this.dir, false);
+          }
+        }
+      }
+      x0 += w + gap;
+    }
+  }
+
   private drawField(): void {
     const g = this.fieldG;
     g.clear();
     const L = this.cfg.fieldLength, E = this.cfg.endZone, hw = this.cfg.width / 2;
-    // mowing bands
+    // mowing bands every 5 yards
     for (let y = -E; y < L + E; y += 5) {
       if (((y + E) / 5) % 2 === 0) continue;
       g.fillStyle(0xffffdd, 0.07);
-      this.quad(g, [[-hw - 6, y], [hw + 6, y], [hw + 6, y + 5], [-hw - 6, y + 5]]);
+      this.quad(g, [[-hw - 8, y], [hw + 8, y], [hw + 8, y + 5], [-hw - 8, y + 5]]);
     }
-    // end zone tints
-    g.fillStyle(this.players[0].character.accent, 0.11);
+    // end zones: team tint with diagonal chalk hatching
+    g.fillStyle(this.players[0].character.accent, 0.13);
     this.quad(g, [[-hw, -E], [hw, -E], [hw, 0], [-hw, 0]]);
-    g.fillStyle(this.players[1].character.accent, 0.11);
+    g.fillStyle(this.players[1].character.accent, 0.13);
     this.quad(g, [[-hw, L], [hw, L], [hw, L + E], [-hw, L + E]]);
+    g.lineStyle(2, 0xffffff, 0.22);
+    for (let k = -hw - E; k < hw; k += 4) {
+      // diagonal from (k, endLine) to (k + E, goalLine), clipped to the sidelines
+      const t0 = Math.max(0, (-hw - k) / E), t1 = Math.min(1, (hw - k) / E);
+      if (t0 >= t1) continue;
+      this.segment(g, k + E * t0, -E + E * t0, k + E * t1, -E + E * t1, false);
+      this.segment(g, k + E * t0, L + E - E * t0, k + E * t1, L + E - E * t1, false);
+    }
     // line of scrimmage shading
     g.fillStyle(0xf5c518, 0.1);
     const los = this.state.lineOfScrimmage;
     this.quad(g, [[-hw, los - 0.25], [hw, los - 0.25], [hw, los + 0.25], [-hw, los + 0.25]]);
+    // hash marks every yard (straight ticks) on two inner hash lines
+    g.lineStyle(2, 0xffffff, 0.5);
+    for (const hx of [-hw + 6, hw - 6]) {
+      for (let y = 1; y < L; y++) {
+        if (y % 5 === 0) continue;
+        this.segment(g, hx - 0.35, y, hx + 0.35, y, false);
+      }
+    }
     // yard lines (hand-pushed chalk: a soft wide pass under a crisp one)
     g.lineStyle(7, 0xffffff, 0.18);
     for (let y = 5; y < L; y += 5) this.segment(g, -hw, y, hw, y);
@@ -757,8 +955,27 @@ export class FootballScene extends BaseGameScene {
     this.segment(g, hw, -E, hw, L + E);
     g.lineStyle(4, 0xf5c518, 0.9);
     this.segment(g, -hw, los, hw, los);
-    // cones at the goal lines and end lines: shaded body, lit side, white band, square base and a cast shadow
-    for (const [x, y] of [[-hw, 0], [hw, 0], [-hw, L], [hw, L], [-hw, -E], [hw, -E], [-hw, L + E], [hw, L + E]] as [number, number][]) {
+    // yard numbers along both sidelines, every 10 yards
+    g.lineStyle(3, 0xffffff, 0.75);
+    for (let y = 10; y < L; y += 10) {
+      const label = String(Math.min(y, L - y));
+      this.number(g, label, -hw + 3.4, y, 2.2);
+      this.number(g, label, hw - 3.4, y, 2.2);
+    }
+    // pylons at the goal lines, cones at the end lines
+    for (const [x, y] of [[-hw, 0], [hw, 0], [-hw, L], [hw, L]] as [number, number][]) {
+      const p = this.screen(x, y);
+      const top = this.screen(x, y, 1.2);
+      if (!p.visible || p.scale <= 0) continue;
+      const w = Math.max(3, p.scale * 0.35);
+      g.fillStyle(0x000000, 0.28);
+      g.fillEllipse(p.sx + w * 0.6, p.sy + 1, w * 2.2, w * 0.6);
+      g.fillStyle(0xe8601c, 1);
+      g.fillRect(p.sx - w / 2, top.sy, w, p.sy - top.sy);
+      g.fillStyle(0xffa060, 0.9);
+      g.fillRect(p.sx - w / 2, top.sy, w * 0.35, p.sy - top.sy);
+    }
+    for (const [x, y] of [[-hw, -E], [hw, -E], [-hw, L + E], [hw, L + E]] as [number, number][]) {
       const p = this.screen(x, y);
       if (!p.visible || p.scale <= 0) continue;
       const s = p.scale * 0.45;
@@ -771,25 +988,9 @@ export class FootballScene extends BaseGameScene {
       g.fillTriangle(p.sx - s * 0.58, p.sy, p.sx + s * 0.58, p.sy, p.sx, p.sy - s * 1.6);
       g.fillStyle(0xff8a2e, 1);
       g.fillTriangle(p.sx - s * 0.58, p.sy, p.sx + s * 0.08, p.sy, p.sx, p.sy - s * 1.6);
-      g.fillStyle(0xffb070, 0.9);
-      g.fillTriangle(p.sx - s * 0.4, p.sy - s * 0.1, p.sx - s * 0.12, p.sy - s * 0.1, p.sx - s * 0.02, p.sy - s * 1.45);
       g.fillStyle(0xffffff, 0.85);
       g.fillRect(p.sx - s * 0.32, p.sy - s * 0.95, s * 0.64, s * 0.2);
-      g.fillStyle(0xd9d9d9, 0.85);
-      g.fillRect(p.sx + s * 0.05, p.sy - s * 0.95, s * 0.27, s * 0.2);
     }
-    // yard numbers every 10
-    for (let y = 10; y < L; y += 10) {
-      const p = this.screen(-hw + 2.5, y);
-      if (!p.visible || p.scale < 6) continue;
-      g.lineStyle(2, 0xffffff, 0.5);
-    }
-  }
-
-  private fitSprite(cs: CharacterSprite, s: number): void {
-    cs.sprite.setScale(s);
-    cs.sprite.y = -96 * s;
-    cs.shadow.setScale(1.1 * s, 0.9 * s);
   }
 
   private drawAthletes(): void {
@@ -800,7 +1001,7 @@ export class FootballScene extends BaseGameScene {
       if (!p.visible) { a.sprite.setVisible(false); continue; }
       a.sprite.setVisible(true);
       a.sprite.setPosition(p.sx, p.sy);
-      this.fitSprite(a.sprite, p.scale * 1.9 / 220);
+      a.sprite.rescale(p.scale * 1.9 / 220);
       a.sprite.setDepth(100 + Math.max(0, 400 - depthZ * 4));
       const sp = Math.hypot(a.vx, a.vy);
       const sy = a.vy * this.dir; // positive = moving away from the camera
@@ -816,16 +1017,11 @@ export class FootballScene extends BaseGameScene {
         : holdingBall && this.phase === 'live' && this.charging ? (a.away ? ['back-throw0'] : ['throw0'])
         : (a.away ? ['back-idle0', 'back-idle1'] : ['idle0', 'idle1']);
       if (!(a.sprite.sprite.frame.name.includes('throw') && !this.charging && this.pass)) a.sprite.setAnim(frames, sp > 0.5 ? 9 : 2, true);
-      // controlled ring + pass target ring
-      if (controlledSet.has(a)) {
-        this.cueRing(p.sx, p.sy, p.scale * 1.15, 0xf5c518, 0.9);
-      }
+      void controlledSet;
     }
   }
 
-  private ringG!: Phaser.GameObjects.Graphics;
   private cueRing(sx: number, sy: number, r: number, color: number, alpha: number): void {
-    if (!this.ringG) this.ringG = this.add.graphics().setDepth(30);
     this.ringG.lineStyle(Math.max(2, r * 0.08), color, alpha);
     this.ringG.strokeEllipse(sx, sy, r * 2, r * 0.7);
   }
@@ -858,13 +1054,12 @@ export class FootballScene extends BaseGameScene {
   private drawCues(): void {
     const g = this.cueG;
     g.clear();
-    if (this.ringG) this.ringG.clear();
+    this.ringG.clear();
     this.targetLabel.setVisible(false);
     if (this.phase === 'done') return;
     const off = this.state.offense;
     const offense = this.athletes.filter((a) => a.team === off);
     const controlledSet = new Set(this.controlled.filter(Boolean) as Athlete[]);
-    // re-draw controlled rings (cleared above)
     for (const a of controlledSet) {
       const p = this.screen(a.x, a.y);
       if (p.visible) this.cueRing(p.sx, p.sy, p.scale * 1.15, 0xf5c518, 0.9);
@@ -886,7 +1081,15 @@ export class FootballScene extends BaseGameScene {
         g.fillTriangle(end.sx - s, end.sy + s * 0.4, end.sx + s, end.sy + s * 0.4, end.sx, end.sy - s);
       }
     }
-    // pass target ring + arc preview while charging (human QB)
+    // tap-to-hike hint over the ball pre-snap
+    if (this.phase === 'pre' && humanOffense && this.holder) {
+      const p = this.screen(this.holder.x, this.holder.y);
+      if (p.visible) {
+        const pulse = 0.5 + 0.3 * Math.sin(this.time.now / 160);
+        this.cueRing(p.sx, p.sy, p.scale * 1.6, 0x4ff0ff, pulse);
+      }
+    }
+    // receiver ring + throw preview while charging (human QB)
     if (this.phase === 'live' && this.holder && controlledSet.has(this.holder) && !this.passUsed && !this.state.returning) {
       const qb = this.holder;
       const mate = offense.find((a) => a !== qb)!;
@@ -897,8 +1100,8 @@ export class FootballScene extends BaseGameScene {
       }
       if (this.charging) {
         const power = Math.min(1, this.chargeT / this.cfg.chargeTime);
-        const lp = leadPoint(mate, 1.5 + power * this.cfg.passMaxLead, this.cfg);
-        const pf = makePass({ x: qb.x, y: qb.y }, lp, this.cfg);
+        const target = this.gesture ? this.screenToField(this.gesture.x, this.gesture.y) : leadPoint(mate, 1.5 + power * this.cfg.passMaxLead, this.cfg);
+        const pf = makePass({ x: qb.x, y: qb.y }, target, this.cfg, power);
         g.lineStyle(4, 0x4ff0ff, 0.8);
         let prevPt: ReturnType<Projector['project']> | null = null;
         for (let i = 0; i <= 18; i++) {
@@ -908,8 +1111,16 @@ export class FootballScene extends BaseGameScene {
           if (prevPt && sp.visible && prevPt.visible && i % 2 === 0) { g.beginPath(); g.moveTo(prevPt.sx, prevPt.sy); g.lineTo(sp.sx, sp.sy); g.strokePath(); }
           prevPt = sp;
         }
-        const lpS = this.screen(lp.x, lp.y);
+        const lpS = this.screen(target.x, target.y);
         if (lpS.visible) this.cueRing(lpS.sx, lpS.sy, lpS.scale * 0.8, 0x4ff0ff, 0.6);
+        // power ring under the finger
+        if (this.gesture) {
+          const r = 34 + power * 46;
+          g.lineStyle(6, 0xf5c518, 0.9);
+          g.beginPath(); g.arc(this.gesture.x, this.gesture.y, r, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * Math.max(0.03, power), false); g.strokePath();
+          g.lineStyle(2, 0xffffff, 0.5);
+          g.strokeCircle(this.gesture.x, this.gesture.y, 80);
+        }
       }
     }
     // in-flight landing marker
@@ -950,7 +1161,6 @@ export class FootballScene extends BaseGameScene {
     }
     g.fillStyle(0xffffff, 1);
     g.fillCircle(mx(this.ball.x), my(this.ball.y), 3);
-    // attack direction arrow
     g.fillStyle(0xffffff, 0.9);
     const ay = r.y + r.height / 2;
     const d = this.dir;

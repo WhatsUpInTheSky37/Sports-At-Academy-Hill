@@ -34,6 +34,8 @@ export interface FootballConfig {
   /** Receiver catch radius and defender interception radius (yards). */
   catchRadius: number;
   interceptRadius: number;
+  /** Backyard rule: the rusher counts this many seconds ("Mississippi") before crossing the line. */
+  rushCount: number;
 }
 
 export const FOOTBALL_CONFIG: FootballConfig = {
@@ -54,6 +56,7 @@ export const FOOTBALL_CONFIG: FootballConfig = {
   chargeTime: 1.1,
   catchRadius: 1.8,
   interceptRadius: 1.1,
+  rushCount: 2.5,
 };
 
 export type Team = 0 | 1;
