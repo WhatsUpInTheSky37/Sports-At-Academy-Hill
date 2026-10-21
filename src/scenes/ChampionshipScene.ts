@@ -33,7 +33,7 @@ export class ChampionshipScene extends Phaser.Scene {
     makePanel(this, sx, sy, sw, 220);
     for (const slot of [0, 1] as const) {
       const x = sx + (slot === 0 ? -sw / 4 : sw / 4);
-      this.add.image(x, sy - 50, `portrait-${match.players[slot].character.id}`).setScale(0.8);
+      this.add.image(x, sy - 50, `portrait-${match.players[slot].character.id}`).setScale(0.4);
       this.add.text(x, sy + 5, names[slot], displayStyle(28, '#ffffff')).setOrigin(0.5, 0);
       this.add.text(x, sy + 40, String(state.points[slot]), displayStyle(56, '#f5c518')).setOrigin(0.5, 0);
     }
@@ -57,7 +57,7 @@ export class ChampionshipScene extends Phaser.Scene {
       this.add.text(lx - lw / 2 + 100, y, GAMES[gid].title, displayStyle(P ? 24 : 28, isNext ? '#f5c518' : '#ffffff', { strokeThickness: 0 })).setOrigin(0, 0.5);
       if (done) {
         const w = state.results[i];
-        this.add.image(lx + lw / 2 - 170, y, `portrait-${match.players[w].character.id}`).setScale(0.45);
+        this.add.image(lx + lw / 2 - 170, y, `portrait-${match.players[w].character.id}`).setScale(0.225);
         this.add.text(lx + lw / 2 - 130, y, names[w], textStyle(24, '#ffffff')).setOrigin(0, 0.5);
       } else if (isNext) {
         this.add.text(lx + lw / 2 - 50, y, 'NEXT', displayStyle(26, '#f5c518', { strokeThickness: 0 })).setOrigin(1, 0.5);

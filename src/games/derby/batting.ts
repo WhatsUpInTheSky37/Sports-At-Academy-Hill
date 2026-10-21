@@ -13,9 +13,9 @@ export interface BattingConfig {
   /** Lateral direction (deg) applied at the edge of the contact window (early = negative/left). */
   maxPullDeg: number;
   /**
-   * Fair territory is a wedge centred fairCenterDeg from straight-up-the-driveway (negative = left,
-   * toward the backyard) and +/- fairAngleDeg wide. Matches the real yard: the left foul line runs
-   * from the plate to the far-left corner of the backyard, the right one follows the hedge beside the driveway.
+   * Fair territory is a wedge centred fairCenterDeg from straight out over the pitcher (negative = left)
+   * and +/- fairAngleDeg wide. A regulation diamond is a 90-degree wedge, so fairAngleDeg = 45: the foul
+   * lines start at the back point of home plate and run out along its angled edges to the tree lines.
    */
   fairCenterDeg: number;
   fairAngleDeg: number;
@@ -44,12 +44,12 @@ export const DEFAULT_BATTING: BattingConfig = {
   perfectMs: 55,
   goodMs: 130,
   maxContactMs: 230,
-  maxPullDeg: 40,
+  maxPullDeg: 55,
   fairCenterDeg: 0,
-  fairAngleDeg: 26,
+  fairAngleDeg: 45,
   boundaryZ: 40,
-  yardLeft: 17,
-  yardRight: 17,
+  yardLeft: 22,
+  yardRight: 22,
   treeHeight: 1.7,
   minExitSpeed: 17,
   maxExitSpeed: 33,

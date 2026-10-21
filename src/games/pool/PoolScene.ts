@@ -704,17 +704,17 @@ export class PoolScene extends BaseGameScene {
   private swapSprites(): void {
     const opp = this.state.turn === 0 ? 1 : 0;
     if (this.opponentSprite && this.opponentSprite.character.id !== this.players[opp].character.id) {
-      const { x, y, sprite } = this.opponentSprite;
+      const { x, y, charScale } = this.opponentSprite;
       const cue = this.opponentSprite.getData('cue') as Phaser.GameObjects.Image;
-      const scale = sprite.scale;
+      const scale = charScale;
       this.opponentSprite.destroy();
       this.opponentSprite = new CharacterSprite(this, x, y, this.players[opp].character, scale);
       this.opponentSprite.setDepth(150).idle();
       this.opponentSprite.setData('cue', cue);
     }
     if (this.shooterSprite && this.shooterSprite.character.id !== this.players[this.state.turn].character.id) {
-      const { x, y, sprite } = this.shooterSprite;
-      const scale = sprite.scale;
+      const { x, y, charScale } = this.shooterSprite;
+      const scale = charScale;
       this.shooterSprite.destroy();
       this.shooterSprite = new CharacterSprite(this, x, y, this.players[this.state.turn].character, scale);
       this.shooterSprite.setDepth(800).setPose('back-crouch');

@@ -4,6 +4,8 @@ import { createCanvas, roundRect, shade } from './canvas';
 
 /** Every character sheet frame is FRAME x FRAME; feet sit near y = 205, centre x = 110. */
 export const FRAME = 220;
+/** Sheets are rasterised at this multiple of FRAME so sprites stay crisp when scaled up on big screens. */
+export const SHEET_RES = 2;
 
 export type BasePoseName =
   | 'idle0' | 'idle1' | 'run0' | 'run1' | 'run2' | 'run3' | 'swing0' | 'swing1' | 'swing2'
@@ -926,12 +928,14 @@ export function buildCharacterTextures(scene: Phaser.Scene): void {
       ...POSE_NAMES.map((n) => ({ name: `L-${n}`, pose: n, facing: -1 as const })),
     ];
     const rows = Math.ceil(frames.length / cols);
-    const { canvas, ctx } = createCanvas(cols * FRAME, rows * FRAME);
+    const R = SHEET_RES;
+    const { canvas, ctx } = createCanvas(cols * FRAME * R, rows * FRAME * R);
     frames.forEach((f, i) => {
       const col = i % cols;
       const row = Math.floor(i / cols);
       ctx.save();
-      ctx.translate(col * FRAME, row * FRAME);
+      ctx.translate(col * FRAME * R, row * FRAME * R);
+      ctx.scale(R, R);
       drawCharacterFrame(ctx, ch, POSES[f.pose], f.facing);
       ctx.restore();
     });
@@ -939,12 +943,13 @@ export function buildCharacterTextures(scene: Phaser.Scene): void {
     frames.forEach((f, i) => {
       const col = i % cols;
       const row = Math.floor(i / cols);
-      tex.add(f.name, 0, col * FRAME, row * FRAME, FRAME, FRAME);
+      tex.add(f.name, 0, col * FRAME * R, row * FRAME * R, FRAME * R, FRAME * R);
     });
-    // portrait
+    // portrait (also 2x; UI code displays it at PORTRAIT_SCALE)
     const pkey = `portrait-${id}`;
-    const p = createCanvas(120, 120);
+    const p = createCanvas(120 * R, 120 * R);
     p.ctx.save();
+    p.ctx.scale(R, R);
     p.ctx.translate(60, 60);
     p.ctx.scale(1.05, 1.05);
     p.ctx.translate(-110, -62);
@@ -982,6 +987,8 @@ export function buildCharacterTextures(scene: Phaser.Scene): void {
 export class CharacterSprite extends Phaser.GameObjects.Container {
   readonly sprite: Phaser.GameObjects.Image;
   readonly shadow: Phaser.GameObjects.Image;
+  /** Logical scale: 1 = the 220 px design frame. (sprite.scale is this divided by SHEET_RES.) */
+  readonly charScale: number;
   private anim: PoseName[] = ['idle0', 'idle1'];
   private animFps = 2;
   private animTime = 0;
@@ -991,8 +998,9 @@ export class CharacterSprite extends Phaser.GameObjects.Container {
 
   constructor(scene: Phaser.Scene, x: number, y: number, readonly character: Character, scale = 1) {
     super(scene, x, y);
+    this.charScale = scale;
     this.shadow = scene.add.image(0, 0, 'shadow').setScale(1.1 * scale, 0.9 * scale).setAlpha(0.9);
-    this.sprite = scene.add.image(0, -FRAME * 0.5 * scale + 14 * scale, `char-${character.id}`, 'idle0').setScale(scale);
+    this.sprite = scene.add.image(0, -FRAME * 0.5 * scale + 14 * scale, `char-${character.id}`, 'idle0').setScale(scale / SHEET_RES);
     this.facing = 1;
     this.add([this.shadow, this.sprite]);
     scene.add.existing(this);

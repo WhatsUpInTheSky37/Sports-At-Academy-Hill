@@ -476,7 +476,7 @@ export function paintLawnHD(ctx: CanvasRenderingContext2D, pr: Projector, area: 
   // grass tufts: perspective-sized, denser far away
   const density = opts.tuftDensity ?? 1;
   const areaM2 = (area.x1 - area.x0) * (area.z1 - area.z0);
-  const n = Math.min(5000, Math.floor(areaM2 * 0.9 * density));
+  const n = Math.min(16000, Math.floor(areaM2 * 0.9 * density));
   for (let i = 0; i < n; i++) {
     // bias samples toward the camera so the near field is not sparse
     const t = Math.pow(r(), 1.6);

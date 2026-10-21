@@ -485,9 +485,9 @@ export class HockeyScene extends BaseGameScene {
         this.announce('GOAL!', { color: '#f5c518', size: this.portrait ? 84 : 100, y: this.fieldTop + 200, sub: `${this.name(scorer)} scores` });
         const sp = this.sprites[scorer];
         confetti(this, sp.x, sp.y - 150, 40);
-        this.react(scorer, 'cheer', sp.x, sp.y - 180 * sp.sprite.scale);
+        this.react(scorer, 'cheer', sp.x, sp.y - 180 * sp.charScale);
         const loser = scorer === 0 ? 1 : 0;
-        if (Math.random() < 0.5) this.time.delayedCall(700, () => { const l = this.sprites[loser]; this.react(loser, 'groan', l.x, l.y - 180 * l.sprite.scale); });
+        if (Math.random() < 0.5) this.time.delayedCall(700, () => { const l = this.sprites[loser]; this.react(loser, 'groan', l.x, l.y - 180 * l.charScale); });
         break;
       }
       case 'reset': Audio.sfx('whistle'); this.setStatus(''); break;
