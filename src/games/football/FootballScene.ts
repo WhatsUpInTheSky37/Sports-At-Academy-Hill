@@ -191,7 +191,7 @@ export class FootballScene extends BaseGameScene {
       });
       paintHaze(ctx, W, horizon, 100);
       // the grassy field itself (static texture; the yard lines are drawn per frame on top)
-      paintLawnHD(ctx, pr, { x0: -40, x1: 40, z0: -6, z1: 66 }, { seed: 13, base: '#5a9838', stripeWidth: 4.6, tuftDensity: 0.9 });
+      paintLawnHD(ctx, pr, { x0: -40, x1: 40, z0: -6, z1: 66 }, { seed: 13, base: '#5a9838', stripeWidth: 4.6, tuftDensity: 0.55 });
       // worn dirt where the kids play down the middle of the field
       for (let i = 0; i < 26; i++) {
         const wx = (r() - 0.5) * 8, wz = 2 + r() * 50;
@@ -730,9 +730,9 @@ export class FootballScene extends BaseGameScene {
       this.quad(g, [[-hw - 6, y], [hw + 6, y], [hw + 6, y + 5], [-hw - 6, y + 5]]);
     }
     // end zone tints
-    g.fillStyle(this.players[0].character.accent, 0.16);
+    g.fillStyle(this.players[0].character.accent, 0.11);
     this.quad(g, [[-hw, -E], [hw, -E], [hw, 0], [-hw, 0]]);
-    g.fillStyle(this.players[1].character.accent, 0.16);
+    g.fillStyle(this.players[1].character.accent, 0.11);
     this.quad(g, [[-hw, L], [hw, L], [hw, L + E], [-hw, L + E]]);
     // line of scrimmage shading
     g.fillStyle(0xf5c518, 0.1);
