@@ -321,7 +321,7 @@ export class DerbyScene extends BaseGameScene {
   private positionBat(frame: 'swing0' | 'swing1' | 'swing2'): void {
     const b = this.batter;
     const s = b.sprite.scale;
-    const flip = b.sprite.flipX ? -1 : 1;
+    const flip = b.facingDir;
     const cfg = {
       swing0: { dx: 10, dy: -150, angle: -70 },
       swing1: { dx: -30, dy: -105, angle: -175 },

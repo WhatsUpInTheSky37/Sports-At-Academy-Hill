@@ -313,8 +313,11 @@ export function drawCharacterFrame(ctx: CanvasRenderingContext2D, ch: Character,
   ctx.font = `bold ${pose.back ? 34 : 30}px "Arial Black", Arial, sans-serif`;
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
+  ctx.save();
+  ctx.scale(facing, 1); // keep the digits readable on mirrored (left-facing) frames
   ctx.fillText(ch.number, 0, pose.back ? 8 : 6);
   ctx.strokeText(ch.number, 0, pose.back ? 8 : 6);
+  ctx.restore();
   ctx.restore();
 
   if (pose.armsFront) for (const [sx, a, b, side] of shoulders) drawArm(sx, a, b, side);
@@ -878,22 +881,28 @@ export function buildCharacterTextures(scene: Phaser.Scene): void {
     const key = `char-${id}`;
     if (scene.textures.exists(key)) continue;
     const ch = CHARACTERS[id];
+    // Every pose is drawn twice: facing right (default) and a true left-facing version (`L-<pose>`)
+    // so mirrored characters keep readable jersey numbers.
     const cols = 7;
-    const rows = Math.ceil(POSE_NAMES.length / cols);
+    const frames: { name: string; pose: PoseName; facing: 1 | -1 }[] = [
+      ...POSE_NAMES.map((n) => ({ name: n, pose: n, facing: 1 as const })),
+      ...POSE_NAMES.map((n) => ({ name: `L-${n}`, pose: n, facing: -1 as const })),
+    ];
+    const rows = Math.ceil(frames.length / cols);
     const { canvas, ctx } = createCanvas(cols * FRAME, rows * FRAME);
-    POSE_NAMES.forEach((name, i) => {
+    frames.forEach((f, i) => {
       const col = i % cols;
       const row = Math.floor(i / cols);
       ctx.save();
       ctx.translate(col * FRAME, row * FRAME);
-      drawCharacterFrame(ctx, ch, POSES[name]);
+      drawCharacterFrame(ctx, ch, POSES[f.pose], f.facing);
       ctx.restore();
     });
     const tex = scene.textures.addCanvas(key, canvas)!;
-    POSE_NAMES.forEach((name, i) => {
+    frames.forEach((f, i) => {
       const col = i % cols;
       const row = Math.floor(i / cols);
-      tex.add(name, 0, col * FRAME, row * FRAME, FRAME, FRAME);
+      tex.add(f.name, 0, col * FRAME, row * FRAME, FRAME, FRAME);
     });
     // portrait
     const pkey = `portrait-${id}`;
@@ -947,15 +956,24 @@ export class CharacterSprite extends Phaser.GameObjects.Container {
     super(scene, x, y);
     this.shadow = scene.add.image(0, 0, 'shadow').setScale(1.1 * scale, 0.9 * scale).setAlpha(0.9);
     this.sprite = scene.add.image(0, -FRAME * 0.5 * scale + 14 * scale, `char-${character.id}`, 'idle0').setScale(scale);
+    this.facing = 1;
     this.add([this.shadow, this.sprite]);
     scene.add.existing(this);
     scene.events.on(Phaser.Scenes.Events.UPDATE, this.tick, this);
     this.once(Phaser.GameObjects.Events.DESTROY, () => scene.events.off(Phaser.Scenes.Events.UPDATE, this.tick, this));
   }
 
-  /** Flip so the character faces left (-1) or right (1). Default art faces the camera with a slight right bias. */
+  private facing: 1 | -1 = 1;
+  get facingDir(): 1 | -1 { return this.facing; }
+  /** Frame name for the current facing (left-facing frames are pre-drawn so numbers stay readable). */
+  private frameName(pose: PoseName): string { return this.facing === -1 ? `L-${pose}` : pose; }
+
+  /** Face left (-1) or right (1). Default art faces the camera with a slight right bias. */
   setFacing(dir: 1 | -1): this {
-    this.sprite.setFlipX(dir === -1);
+    if (dir === this.facing) return this;
+    this.facing = dir;
+    const current = this.holdFrame ?? this.anim[Math.min(this.anim.length - 1, Math.floor(this.animTime * this.animFps))] ?? this.anim[0];
+    this.sprite.setFrame(this.frameName(current));
     return this;
   }
 
@@ -967,7 +985,7 @@ export class CharacterSprite extends Phaser.GameObjects.Container {
     this.animTime = 0;
     this.holdFrame = null;
     this.onAnimDone = onDone;
-    this.sprite.setFrame(frames[0]);
+    this.sprite.setFrame(this.frameName(frames[0]));
     return this;
   }
 
@@ -975,7 +993,7 @@ export class CharacterSprite extends Phaser.GameObjects.Container {
   setPose(frame: PoseName): this {
     this.holdFrame = frame;
     this.anim = [frame];
-    this.sprite.setFrame(frame);
+    this.sprite.setFrame(this.frameName(frame));
     return this;
   }
 
@@ -991,9 +1009,9 @@ export class CharacterSprite extends Phaser.GameObjects.Container {
     if (idx >= this.anim.length) {
       if (this.loop) {
         this.animTime = 0;
-        this.sprite.setFrame(this.anim[0]);
+        this.sprite.setFrame(this.frameName(this.anim[0]));
       } else {
-        this.sprite.setFrame(this.anim[this.anim.length - 1]);
+        this.sprite.setFrame(this.frameName(this.anim[this.anim.length - 1]));
         this.holdFrame = this.anim[this.anim.length - 1];
         const cb = this.onAnimDone;
         this.onAnimDone = undefined;
@@ -1001,6 +1019,6 @@ export class CharacterSprite extends Phaser.GameObjects.Container {
       }
       return;
     }
-    this.sprite.setFrame(this.anim[idx]);
+    this.sprite.setFrame(this.frameName(this.anim[idx]));
   }
 }

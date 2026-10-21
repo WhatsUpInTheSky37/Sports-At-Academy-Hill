@@ -835,7 +835,7 @@ export class FootballScene extends BaseGameScene {
     if (held) {
       const p = this.screen(held.x, held.y, 0);
       const s = p.scale * 1.9 / 220;
-      const f = held.sprite.sprite.flipX ? -1 : 1;
+      const f = held.sprite.facingDir;
       this.ballImg.setVisible(p.visible).setPosition(p.sx + 36 * s * f, p.sy - 95 * s).setScale(s * 0.75).setAngle(-30 * f).setDepth(held.sprite.depth + 1);
       this.ballShadow.setVisible(false);
       return;
