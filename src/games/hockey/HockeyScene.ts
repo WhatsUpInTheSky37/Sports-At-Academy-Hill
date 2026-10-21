@@ -83,7 +83,7 @@ export class HockeyScene extends BaseGameScene {
     this.fieldTop = this.hudBottom - 40;
     this.fieldBottom = P ? H - 300 : H - 160;
     const horizon = this.fieldTop + (this.fieldBottom - this.fieldTop) * (P ? 0.3 : 0.33);
-    const focal = P ? 1050 : 1250;
+    const focal = P ? 1250 : 1500;
     this.proj = new Projector({ camZ: HOCKEY_VISUAL.camZ, camH: HOCKEY_VISUAL.camH, horizonY: horizon, focal, cx: W / 2 });
     this.state = createShootout(this.cfg.attempts, 0);
     this.world = this.add.container(0, 0).setDepth(1);

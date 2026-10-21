@@ -60,7 +60,7 @@ export const DEFAULT_SHOOTOUT: ShootoutConfig = {
   goalW: 1.9,
   goalH: 1.2,
   goalDepth: 0.9,
-  startZ: 4.6,
+  startZ: 5.4,
   minDist: 2.4,
   playerSpeed: 4.6,
   playerAccel: 22,

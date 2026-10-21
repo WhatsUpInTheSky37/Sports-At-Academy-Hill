@@ -33,7 +33,12 @@ export const FOOTBALL_VISUAL = {
   swipeFullSpeed: 2600,
   /** The backdrop is rasterised at this multiple of the logical size. */
   superSample: QUALITY.backdropSS,
+  /** The street along the right sideline (world x, yards from the centre line) and how cars drive on it. */
+  road: { x0: 14.2, x1: 21.2, lanes: [15.9, 19.5], carSpeed: 13, carEveryMin: 6, carEveryMax: 14, from: -45, to: 85 },
 };
+
+interface Car { y: number; dir: 1 | -1; lane: number; speed: number; color: number; dark: number; }
+const CAR_COLORS: [number, number][] = [[0xd32f2f, 0x8e1c1c], [0x1e63c9, 0x123f82], [0xf5f5f5, 0xb5b5b5], [0x222222, 0x0c0c0c], [0x2e8b57, 0x1b5436], [0xf0a500, 0xa37000], [0x8e9aaf, 0x5d6677]];
 
 interface Athlete {
   team: Team;
@@ -94,6 +99,9 @@ export class FootballScene extends BaseGameScene {
   private cueG!: Phaser.GameObjects.Graphics;
   private ringG!: Phaser.GameObjects.Graphics;
   private miniG!: Phaser.GameObjects.Graphics;
+  private carsG!: Phaser.GameObjects.Graphics;
+  private cars: Car[] = [];
+  private carTimer = 3;
   private miniRect = new Phaser.Geom.Rectangle(0, 0, 100, 240);
   private ballImg!: Phaser.GameObjects.Image;
   private ballShadow!: Phaser.GameObjects.Image;
@@ -115,9 +123,11 @@ export class FootballScene extends BaseGameScene {
     this.fieldTop = this.hudBottom - 30;
     this.fieldBottom = P ? H - 300 : H - 150;
     const horizon = this.fieldTop + (this.fieldBottom - this.fieldTop) * (P ? 0.26 : 0.3);
-    this.proj = new Projector({ camZ: FOOTBALL_VISUAL.camZ, camH: FOOTBALL_VISUAL.camH, horizonY: horizon, focal: P ? 1150 : 1050, cx: W / 2 });
+    this.proj = new Projector({ camZ: FOOTBALL_VISUAL.camZ, camH: FOOTBALL_VISUAL.camH, horizonY: horizon, focal: P ? 1400 : 1300, cx: W / 2 });
     this.paintBackground();
     this.fieldG = this.add.graphics().setDepth(2);
+    this.carsG = this.add.graphics().setDepth(95);
+    this.cars = []; this.carTimer = 3;
     this.ringG = this.add.graphics().setDepth(30);
     this.cueG = this.add.graphics().setDepth(40);
     this.ballShadow = this.add.image(0, 0, 'shadow').setDepth(20).setVisible(false);
@@ -516,7 +526,9 @@ export class FootballScene extends BaseGameScene {
     if (this.phase === 'pre') this.updatePre(dt);
     else if (this.phase === 'live') this.updateLive(dt);
     this.updateCamera(dt);
+    this.updateCars(dt);
     this.drawField();
+    this.drawCars();
     this.drawAthletes();
     this.drawBall();
     this.drawCues();
@@ -914,6 +926,7 @@ export class FootballScene extends BaseGameScene {
       g.fillStyle(0xffffdd, 0.07);
       this.quad(g, [[-hw - 8, y], [hw + 8, y], [hw + 8, y + 5], [-hw - 8, y + 5]]);
     }
+    this.drawRoad(g);
     // end zones: team tint with diagonal chalk hatching
     g.fillStyle(this.players[0].character.accent, 0.13);
     this.quad(g, [[-hw, -E], [hw, -E], [hw, 0], [-hw, 0]]);
@@ -991,6 +1004,123 @@ export class FootballScene extends BaseGameScene {
       g.fillTriangle(p.sx - s * 0.58, p.sy, p.sx + s * 0.08, p.sy, p.sx, p.sy - s * 1.6);
       g.fillStyle(0xffffff, 0.85);
       g.fillRect(p.sx - s * 0.32, p.sy - s * 0.95, s * 0.64, s * 0.2);
+    }
+  }
+
+  /** The quiet street along the right sideline: asphalt, edge lines, a dashed centre line, a curb and the grass verge. */
+  private drawRoad(g: Phaser.GameObjects.Graphics): void {
+    const R = FOOTBALL_VISUAL.road;
+    const y0 = R.from, y1 = R.to;
+    // grass verge is the lawn already there; curb
+    g.fillStyle(0xb9b5ad, 1);
+    this.quad(g, [[R.x0 - 0.5, y0], [R.x0, y0], [R.x0, y1], [R.x0 - 0.5, y1]]);
+    // asphalt, a little lighter toward the far distance happens naturally with the vignette
+    g.fillStyle(0x5c5a57, 1);
+    this.quad(g, [[R.x0, y0], [R.x1, y0], [R.x1, y1], [R.x0, y1]]);
+    g.fillStyle(0x000000, 0.12);
+    this.quad(g, [[R.x0, y0], [R.x0 + 0.6, y0], [R.x0 + 0.6, y1], [R.x0, y1]]);
+    // edge lines
+    g.lineStyle(3, 0xf2f2f2, 0.8);
+    this.segment(g, R.x0 + 0.35, y0, R.x0 + 0.35, y1, false);
+    this.segment(g, R.x1 - 0.35, y0, R.x1 - 0.35, y1, false);
+    // dashed yellow centre line
+    g.lineStyle(3, 0xf2c200, 0.9);
+    const cx = (R.x0 + R.x1) / 2;
+    for (let y = y0; y < y1; y += 6) this.segment(g, cx, y, cx, y + 3, false);
+    // a couple of manhole covers and tar patches
+    for (const [mx, my] of [[cx - 1.2, 8], [cx + 1.4, 31]] as [number, number][]) {
+      const p = this.screen(mx, my);
+      if (!p.visible || p.scale <= 0) continue;
+      g.fillStyle(0x3b3a38, 1);
+      g.fillEllipse(p.sx, p.sy, 0.9 * p.scale, 0.35 * p.scale);
+      g.lineStyle(1, 0x7a7773, 0.8);
+      g.strokeEllipse(p.sx, p.sy, 0.9 * p.scale, 0.35 * p.scale);
+    }
+    // far sidewalk and a row of mailboxes on the far side of the street
+    g.fillStyle(0xc9c5bd, 1);
+    this.quad(g, [[R.x1, y0], [R.x1 + 1.2, y0], [R.x1 + 1.2, y1], [R.x1, y1]]);
+    for (let y = -36; y < y1; y += 14) {
+      const b = this.screen(R.x1 + 1.6, y), t = this.screen(R.x1 + 1.6, y, 1.1);
+      if (!b.visible || b.scale <= 0) continue;
+      g.lineStyle(Math.max(1, 0.08 * b.scale), 0x4a3a2a, 1);
+      g.lineBetween(b.sx, b.sy, t.sx, t.sy);
+      g.fillStyle(0x2b2b2b, 1);
+      g.fillRoundedRect(t.sx - 0.3 * b.scale, t.sy - 0.25 * b.scale, 0.6 * b.scale, 0.3 * b.scale, Math.min(6, 0.08 * b.scale));
+    }
+  }
+
+  private updateCars(dt: number): void {
+    const R = FOOTBALL_VISUAL.road;
+    this.carTimer -= dt;
+    if (this.carTimer <= 0) {
+      this.carTimer = R.carEveryMin + Math.random() * (R.carEveryMax - R.carEveryMin);
+      const dir: 1 | -1 = Math.random() < 0.5 ? 1 : -1;
+      const [color, dark] = CAR_COLORS[Math.floor(Math.random() * CAR_COLORS.length)];
+      // right-hand traffic: cars heading +y use the near lane, cars heading -y the far lane
+      this.cars.push({ y: dir === 1 ? R.from : R.to, dir, lane: dir === 1 ? R.lanes[0] : R.lanes[1], speed: R.carSpeed * (0.85 + Math.random() * 0.4), color, dark });
+    }
+    for (const c of this.cars) c.y += c.dir * c.speed * dt;
+    this.cars = this.cars.filter((c) => c.y > R.from - 5 && c.y < R.to + 5);
+  }
+
+  /** Cartoon cars as shaded boxes: body, cabin with windows, wheels and a ground shadow, sorted far to near. */
+  private drawCars(): void {
+    const g = this.carsG;
+    g.clear();
+    const sorted = [...this.cars].sort((a, b) => this.world(a.lane, a.y).wz - this.world(b.lane, b.y).wz).reverse();
+    for (const c of sorted) {
+      const L = 4.6, W = 2.0, H = 0.95;
+      const x0 = c.lane - W / 2, x1 = c.lane + W / 2, y0 = c.y - L / 2, y1 = c.y + L / 2;
+      const P = (x: number, y: number, h: number) => this.screen(x, y, h);
+      const centre = P(c.lane, c.y, 0);
+      if (!centre.visible || centre.scale <= 0) continue;
+      const near = 1.2 - this.proj.cam.camZ;
+      if (this.world(c.lane, y0).wz < near || this.world(c.lane, y1).wz < near) continue;
+      // shadow
+      g.fillStyle(0x000000, 0.3);
+      g.fillEllipse(centre.sx + 0.3 * centre.scale, centre.sy + 0.05 * centre.scale, L * centre.scale * 0.85, W * centre.scale * 0.45);
+      type Face = { pts: { x: number; y: number }[]; color: number; alpha: number; depth: number };
+      const faces: Face[] = [];
+      const face = (corners: [number, number, number][], color: number, alpha = 1) => {
+        const pts = corners.map(([x, y, h]) => { const q = P(x, y, h); return { x: q.sx, y: q.sy }; });
+        const depth = corners.reduce((sum, [x, y]) => sum + this.world(x, y).wz, 0) / corners.length;
+        faces.push({ pts, color, alpha, depth });
+      };
+      // body box
+      face([[x0, y0, 0], [x0, y1, 0], [x0, y1, H], [x0, y0, H]], c.color);          // left side
+      face([[x1, y0, 0], [x1, y1, 0], [x1, y1, H], [x1, y0, H]], c.color);          // right side
+      face([[x0, y0, 0], [x1, y0, 0], [x1, y0, H], [x0, y0, H]], c.dark);           // back end
+      face([[x0, y1, 0], [x1, y1, 0], [x1, y1, H], [x0, y1, H]], c.dark);           // front end
+      face([[x0, y0, H], [x1, y0, H], [x1, y1, H], [x0, y1, H]], c.color);          // hood/trunk top (lit later)
+      // cabin box with windows
+      const cy0 = c.y - L * 0.22, cy1 = c.y + L * 0.22, cx0 = x0 + 0.18, cx1 = x1 - 0.18, CH = H + 0.7;
+      const glass = 0x9ec9ea;
+      face([[cx0, cy0, H], [cx0, cy1, H], [cx0, cy1, CH], [cx0, cy0, CH]], glass);
+      face([[cx1, cy0, H], [cx1, cy1, H], [cx1, cy1, CH], [cx1, cy0, CH]], glass);
+      face([[cx0, cy0, H], [cx1, cy0, H], [cx1, cy0, CH], [cx0, cy0, CH]], glass);
+      face([[cx0, cy1, H], [cx1, cy1, H], [cx1, cy1, CH], [cx0, cy1, CH]], glass);
+      face([[cx0, cy0, CH], [cx1, cy0, CH], [cx1, cy1, CH], [cx0, cy1, CH]], c.color);
+      faces.sort((a, b) => b.depth - a.depth);
+      for (const f of faces) { g.fillStyle(f.color, f.alpha); g.fillPoints(f.pts, true); g.lineStyle(1, 0x000000, 0.25); g.strokePoints(f.pts, true); }
+      // top highlight on the roof and hood
+      const roof = P(c.lane, c.y, CH);
+      g.fillStyle(0xffffff, 0.18);
+      g.fillEllipse(roof.sx, roof.sy, L * 0.35 * roof.scale, W * 0.3 * roof.scale);
+      // wheels
+      for (const [wx, wy] of [[x0 + 0.1, y0 + 0.9], [x1 - 0.1, y0 + 0.9], [x0 + 0.1, y1 - 0.9], [x1 - 0.1, y1 - 0.9]] as [number, number][]) {
+        const w = P(wx, wy, 0.25);
+        g.fillStyle(0x151515, 1);
+        g.fillEllipse(w.sx, w.sy, 0.5 * w.scale, 0.5 * w.scale);
+        g.fillStyle(0x8a8a8a, 1);
+        g.fillEllipse(w.sx, w.sy, 0.22 * w.scale, 0.22 * w.scale);
+      }
+      // headlights / tail lights on the ends
+      const frontEnd = c.dir === 1 ? y1 : y0, backEnd = c.dir === 1 ? y0 : y1;
+      for (const sx of [x0 + 0.35, x1 - 0.35]) {
+        const hl = P(sx, frontEnd, H * 0.6), tl = P(sx, backEnd, H * 0.6);
+        g.fillStyle(0xfff4c2, 1); g.fillEllipse(hl.sx, hl.sy, 0.3 * hl.scale, 0.18 * hl.scale);
+        g.fillStyle(0xff3b30, 1); g.fillEllipse(tl.sx, tl.sy, 0.3 * tl.scale, 0.16 * tl.scale);
+      }
     }
   }
 

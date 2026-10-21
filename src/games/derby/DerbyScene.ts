@@ -88,8 +88,8 @@ export class DerbyScene extends BaseGameScene {
     this.hitMode = Storage.settings.derbyHitMode === 'classic' ? 'classic' : 'tap';
     this.fieldTop = this.hudBottom - 40;
     this.fieldBottom = P ? H - 330 : H - 170;
-    const horizon = this.fieldTop + (this.fieldBottom - this.fieldTop) * 0.28;
-    const focal = P ? 1250 : 1150;
+    const horizon = this.fieldTop + (this.fieldBottom - this.fieldTop) * (P ? 0.26 : 0.22);
+    const focal = P ? 1450 : 1350;
     this.proj = new Projector({ camZ: DERBY_VISUAL.camZ, camH: DERBY_VISUAL.camH, horizonY: horizon, focal, cx: W / 2 });
     this.aimRange = P ? 120 : DERBY_VISUAL.aimRange;
     this.paintBackground();
@@ -101,12 +101,12 @@ export class DerbyScene extends BaseGameScene {
     this.pitcher.setDepth(100).idle();
     const plate = this.proj.project(0, 0, 0);
     this.plateScreen = { x: plate.sx, y: plate.sy };
-    const bx = plate.sx - (P ? 230 : 250);
+    const bx = plate.sx - (P ? 250 : 285);
     const by = plate.sy + (P ? 60 : 40);
-    this.batter = new CharacterSprite(this, bx, by, this.players[0].character, P ? 1.45 : 1.6);
+    this.batter = new CharacterSprite(this, bx, by, this.players[0].character, P ? 1.62 : 1.85);
     this.batter.setDepth(500).setPose('back-bat0');
     // the bat texture is drawn at 4x, so display at a quarter of the logical scale
-    this.bat = this.add.image(0, 0, 'bat').setOrigin(0.05, 0.5).setDepth(501).setScale((P ? 1.3 : 1.45) / 4);
+    this.bat = this.add.image(0, 0, 'bat').setOrigin(0.05, 0.5).setDepth(501).setScale((P ? 1.45 : 1.68) / 4);
     this.swingArc = this.add.graphics().setDepth(499);
     this.positionBat('bat0');
     // Ball
@@ -638,9 +638,9 @@ export class DerbyScene extends BaseGameScene {
     const pp = this.proj.project(DERBY_VISUAL.pitcherX, 0, DERBY_VISUAL.pitcherZ);
     this.pitcher = new CharacterSprite(this, pp.sx, pp.sy, this.players[p].character, pp.scale * 2.0 / 220 * 1.15);
     this.pitcher.setDepth(100).idle();
-    const bx = this.plateScreen.x - (P ? 230 : 250);
+    const bx = this.plateScreen.x - (P ? 250 : 285);
     const by = this.plateScreen.y + (P ? 60 : 40);
-    this.batter = new CharacterSprite(this, bx, by, this.players[b].character, P ? 1.45 : 1.6);
+    this.batter = new CharacterSprite(this, bx, by, this.players[b].character, P ? 1.62 : 1.85);
     this.batter.setDepth(500).setPose('back-bat0');
     this.positionBat('bat0');
   }
