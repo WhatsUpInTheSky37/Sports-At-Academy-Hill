@@ -18,6 +18,8 @@ Working notes for the Sports at Academy Hill build. Updated as work lands.
 
 - In-browser match completions verified for all seven games (scripts/play-idle.mjs, play-derby.mjs) and the full championship flow (scripts/play-championship.mjs).
 
+- Graphics pass: derby rebuilt so the batter faces the wrap-around evergreen line (no house in view) with a three-sided home run boundary; high-fidelity painters (layered sky, perspective lawn, cypress/pine/deciduous trees with haze, vignette) used by the derby, menu, HORSE, hockey and football; HD basement (billiards, wrestling) and rec room (darts); shaded character sprites with true left-facing frames; realistic equipment textures.
+
 ## Remaining / known limitations
 - Headless verification uses the Canvas renderer and scripted input; manual play on real phones and keyboards is still the best test of feel and tuning.
 - Local two-player wrestling, hockey and football need a physical keyboard (no second set of touch controls).

@@ -64,7 +64,7 @@ The smoke and playthrough scripts open `?renderer=canvas`, a URL switch that for
 
 ### Rules and simplifications
 
-- **Derby:** automatic hittable pitches; swing timing (Early / Perfect / Late) sets direction and contact, the aim reticle sets loft (aim under the ball for a fly ball). A fair ball that clears the tree line is a home run; miss, foul, or short is an out; taking a pitch is free. 10 outs each, then 3-out tiebreak rounds until someone leads.
+- **Derby:** automatic hittable pitches; swing timing (Early / Perfect / Late) sets direction and contact, the aim reticle sets loft (aim under the ball for a fly ball). The batter faces the backyard with the evergreen line wrapping around three sides; a fair ball that clears the trees wherever it crosses the line is a home run; miss, foul, or short is an out; taking a pitch is free. 10 outs each, then 3-out tiebreak rounds until someone leads.
 - **HORSE:** setter picks a spot and shoots; a make must be matched from the same spot or the matcher earns a letter. Setter miss hands over the setter role. Five letters loses.
 - **Billiards:** casual eight-ball (open table after the break, groups on the first legal pocketed ball, fouls give ball in hand anywhere, called pocket for the 8, 8 on the break is respotted, illegal break lets the opponent accept or rerack). No jump/masse shots, no three-foul rule.
 - **Wrestling:** cartoon grappling in a couch-cushion ring. Three-count pins with a timed escape window (no mashing). Stepping out resets both wrestlers.
@@ -90,7 +90,7 @@ src/core/               shared systems
   match.ts              match config / results
   championship.ts       championship progression (pure)
   BaseGameScene.ts      shell every game scene extends (HUD, pause, help, results)
-src/art/                procedural artwork: characters (front/back poses), equipment, environments
+src/art/                procedural artwork: characters (front/back/left-facing poses), equipment, environment painters (sky, perspective lawn, trees, haze)
 src/scenes/             boot, menu, setup, settings, records, championship hub, overlays
 src/games/<game>/       one folder per sport: pure rules/physics modules + the Phaser scene
 tests/                  vitest suites (rules, physics, scoring, championship, storage)
