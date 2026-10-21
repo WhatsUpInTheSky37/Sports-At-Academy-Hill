@@ -1040,7 +1040,20 @@ export class CharacterSprite extends Phaser.GameObjects.Container {
     this.add([this.shadow, this.sprite]);
     scene.add.existing(this);
     scene.events.on(Phaser.Scenes.Events.UPDATE, this.tick, this);
-    this.once(Phaser.GameObjects.Events.DESTROY, () => scene.events.off(Phaser.Scenes.Events.UPDATE, this.tick, this));
+  }
+
+  private dead = false;
+
+  /**
+   * Stop animating before the game object goes away. The scene's UPDATE emit iterates a snapshot of
+   * its listeners, so a sprite destroyed mid-frame (e.g. when the batters swap) would otherwise get
+   * one more tick after its image is gone, and setTexture on a destroyed image throws inside the
+   * game loop, which halts Phaser for good.
+   */
+  destroy(fromScene?: boolean): void {
+    this.dead = true;
+    this.scene?.events.off(Phaser.Scenes.Events.UPDATE, this.tick, this);
+    super.destroy(fromScene);
   }
 
   /** Change the logical scale (perspective scenes call this every frame as depth changes). */
@@ -1056,7 +1069,10 @@ export class CharacterSprite extends Phaser.GameObjects.Container {
   private facing: 1 | -1 = 1;
   get facingDir(): 1 | -1 { return this.facing; }
   /** Show a pose on the sheet for the current facing (left-facing frames are pre-drawn so numbers stay readable). */
-  private applyFrame(pose: PoseName): void { this.sprite.setTexture(sheetKey(this._character.id, this.facing), pose); }
+  private applyFrame(pose: PoseName): void {
+    if (this.dead || !this.sprite.scene) return;
+    this.sprite.setTexture(sheetKey(this._character.id, this.facing), pose);
+  }
   private currentPose(): PoseName { return this.holdFrame ?? this.anim[Math.min(this.anim.length - 1, Math.floor(this.animTime * this.animFps))] ?? this.anim[0]; }
 
   /** Swap in another character (scenes that reuse one sprite for whoever is up). */
@@ -1102,7 +1118,7 @@ export class CharacterSprite extends Phaser.GameObjects.Container {
   sad(): this { return this.setPose('sad'); }
 
   private tick(_t: number, dt: number): void {
-    if (this.holdFrame || this.anim.length <= 1) return;
+    if (this.dead || this.holdFrame || this.anim.length <= 1) return;
     this.animTime += dt / 1000;
     const idx = Math.floor(this.animTime * this.animFps);
     if (idx >= this.anim.length) {
