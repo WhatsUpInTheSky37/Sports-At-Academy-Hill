@@ -48,8 +48,8 @@ const config: Phaser.Types.Core.GameConfig = {
 const game = new Phaser.Game(config);
 (window as unknown as { __game: Phaser.Game }).__game = game;
 // Test hook used by scripts/smoke.mjs to jump straight into a game scene.
-game.registry.set('__buildMatch', (sceneKey: string, mode: 'single' | 'local' = 'single') => {
+game.registry.set('__buildMatch', (sceneKey: string, mode: 'single' | 'local' = 'single', extra: Record<string, unknown> = {}) => {
   const id = (Object.keys(GAMES) as GameId[]).find((k) => GAMES[k].sceneKey === sceneKey) ?? 'derby';
   const s = Storage.settings;
-  return buildMatch(id, { mode, difficulty: s.difficulty, p1: 'will', p2: 'vinnie' });
+  return { ...buildMatch(id, { mode, difficulty: s.difficulty, p1: 'will', p2: 'vinnie' }), ...extra };
 });

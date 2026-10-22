@@ -1,13 +1,14 @@
 import Phaser from 'phaser';
 import { BaseGameScene } from '../../core/BaseGameScene';
-import { QUALITY } from '../../core/quality';
 import { THEME } from '../../core/constants';
 import { Projector } from '../../core/projection';
 import { Audio } from '../../core/audio';
 import { Meter, displayStyle, textStyle, confetti, impact } from '../../core/ui';
 import type { Controls } from '../../core/input';
-import { CHARACTER_IDS, CHARACTERS, type Character } from '../../core/characters';
-import { CharacterSprite, type PoseName } from '../../art/characters';
+import { CHARACTERS, displayName, type Character } from '../../core/characters';
+import { defaultSetup, hasAllTimeQb, setupCharacters, teamSize, type FootballSetup } from './teams';
+import { CharacterSprite, SHEET_RES, ensureCharacterSheet, type PoseName } from '../../art/characters';
+import { QUALITY } from '../../core/quality';
 import { createCanvas, paintHaze, paintLawnHD, paintPineHD, paintSkyHD, paintTreeHD, paintVignette, rng } from '../../art/environment';
 import { paintFenceHD, paintHouseHD } from './art';
 import {
@@ -42,7 +43,7 @@ const CAR_COLORS: [number, number][] = [[0xd32f2f, 0x8e1c1c], [0x1e63c9, 0x123f8
 
 interface Athlete {
   team: Team;
-  idx: 0 | 1;
+  idx: number;
   x: number; y: number; vx: number; vy: number;
   sprite: CharacterSprite;
   character: Character;
@@ -53,6 +54,8 @@ interface Athlete {
   flip: 1 | -1;
   /** 'cover' | 'rush' for defenders during a play. */
   role: 'cover' | 'rush';
+  /** The receiver this defender lines up on (cover role). */
+  mark: Athlete | null;
 }
 
 interface Gesture { id: number; x0: number; y0: number; t0: number; x: number; y: number; moved: boolean; }
@@ -73,6 +76,12 @@ export class FootballScene extends BaseGameScene {
   constructor() { super('FootballScene'); }
 
   private cfg = FOOTBALL_CONFIG;
+  private setup!: FootballSetup;
+  /** Players per team (2 or 3). */
+  private size: 2 | 3 = 2;
+  /** One person quarterbacks both teams (and never plays defence). */
+  private allTime = false;
+  private qbAthlete: Athlete | null = null;
   private state!: FootballState;
   private phase: Phase = 'pre';
   private proj!: Projector;
@@ -137,7 +146,7 @@ export class FootballScene extends BaseGameScene {
     this.buildAthletes();
     this.buildUi();
     const joyArea = P ? { x: 0, y: H * 0.6, w: W * 0.5, h: H * 0.4 } : { x: 0, y: H * 0.5, w: W * 0.38, h: H * 0.5 };
-    this.ctrl[0] = this.makeControls(0, { labels: { b: 'SWITCH' }, joyArea });
+    this.ctrl[0] = this.makeControls(0, { labels: this.allTime ? {} : { b: 'SWITCH' }, joyArea });
     if (this.match.mode === 'local') this.ctrl[1] = this.makeControls(1, { labels: { b: 'SWITCH' }, touch: false });
     this.input.on('pointerdown', (p: Phaser.Input.Pointer) => this.onPointerDown(p));
     this.input.on('pointermove', (p: Phaser.Input.Pointer) => this.onPointerMove(p));
@@ -151,20 +160,55 @@ export class FootballScene extends BaseGameScene {
   private buildAthletes(): void {
     // the scene instance is reused on rematch: never keep last match's (destroyed) sprites
     this.athletes = [];
-    const taken = new Set([this.players[0].character.id, this.players[1].character.id]);
-    const spare = CHARACTER_IDS.filter((id) => !taken.has(id));
-    const chars: Character[][] = [
-      [this.players[0].character, CHARACTERS[spare[0]]],
-      [this.players[1].character, CHARACTERS[spare[1]]],
-    ];
+    this.qbAthlete = null;
+    this.setup = this.match.football ?? defaultSetup(this.players[0].character.id, this.players[1].character.id);
+    this.size = teamSize(this.setup.format);
+    // all-time QB needs the CPU on both sides; in local two-player it falls back to plain 3 on 3
+    this.allTime = hasAllTimeQb(this.setup.format) && this.match.mode === 'single';
+    // six or seven kids on a phone would be ~200 MB of sprite sheets at full size: build these at 3/4
+    const kids = setupCharacters(this.setup);
+    const res = QUALITY.mobile && kids.length > 4 ? SHEET_RES * 0.75 : SHEET_RES;
+    for (const id of kids) ensureCharacterSheet(this, id, res);
+    const make = (team: Team, idx: number, ch: Character): Athlete => {
+      const sprite = new CharacterSprite(this, 0, 0, ch, 1);
+      sprite.setDepth(100);
+      const a: Athlete = { team, idx, x: 0, y: 0, vx: 0, vy: 0, sprite, character: ch, route: [], routeIdx: 0, routeName: 'go', away: true, flip: 1, role: 'cover', mark: null };
+      this.athletes.push(a);
+      return a;
+    };
     for (const team of [0, 1] as Team[]) {
-      for (const idx of [0, 1] as (0 | 1)[]) {
-        const ch = chars[team][idx];
-        const sprite = new CharacterSprite(this, 0, 0, ch, 1);
-        sprite.setDepth(100);
-        this.athletes.push({ team, idx, x: 0, y: 0, vx: 0, vy: 0, sprite, character: ch, route: [], routeIdx: 0, routeName: 'go', away: true, flip: 1, role: idx === 0 ? 'rush' : 'cover' });
-      }
+      for (let idx = 0; idx < this.size; idx++) make(team, idx, CHARACTERS[this.setup.rosters[team][idx]]);
     }
+    if (this.allTime) this.qbAthlete = make(0, this.size, CHARACTERS[this.setup.qb]);
+  }
+
+  /** Whether a person (not the CPU) runs the offence right now. The all-time QB is always a person. */
+  private offenseIsHuman(): boolean { return this.allTime || !this.isAI(this.state.offense); }
+
+  /** The roster players of a team (never the all-time QB). */
+  private teamPlayers(team: Team): Athlete[] { return this.athletes.filter((a) => a.team === team && a !== this.qbAthlete); }
+
+  /** Offensive players on the field for the team with the ball (includes the all-time QB). */
+  private offensePlayers(): Athlete[] { return this.athletes.filter((a) => a.team === this.state.offense); }
+
+  /** Defenders: the other team's roster. The all-time QB never defends. */
+  private defensePlayers(): Athlete[] { return this.athletes.filter((a) => a.team !== this.state.offense && a !== this.qbAthlete); }
+
+  /** Receivers available to a quarterback: teammates who are not the passer. */
+  private receiversOf(qb: Athlete): Athlete[] { return this.athletes.filter((a) => a.team === qb.team && a !== qb); }
+
+  /** The most open receiver (largest gap to the nearest defender), for keyboard throws and the CPU QB. */
+  private bestReceiver(qb: Athlete): Athlete {
+    const recv = this.receiversOf(qb);
+    const def = this.defensePlayers();
+    const open = (r: Athlete) => (def.length ? Math.min(...def.map((d) => dist(d, r))) : 99) + (r.vy * this.dir > 0 ? 0.6 : 0);
+    return recv.reduce((b, r) => (open(r) > open(b) ? r : b), recv[0]);
+  }
+
+  /** Who the status line calls the offence: the team captain, or the all-time QB with the team named. */
+  private offenseLabel(): string {
+    const cap = this.name(this.state.offense);
+    return this.allTime && this.qbAthlete ? `${displayName(this.qbAthlete.character)} (all-time QB) for ${cap}'s team` : cap;
   }
 
   private buildUi(): void {
@@ -280,30 +324,42 @@ export class FootballScene extends BaseGameScene {
     const d = this.dir;
     this.sideSwitch = -this.sideSwitch;
     const side = this.sideSwitch;
-    const off = this.athletes.filter((a) => a.team === s.offense);
-    const def = this.athletes.filter((a) => a.team !== s.offense);
-    const qb = off[0];
-    const wr = off[1];
+    // the all-time QB joins whichever team has the ball
+    if (this.qbAthlete) this.qbAthlete.team = s.offense;
+    const roster = this.teamPlayers(s.offense);
+    const qb = this.qbAthlete ?? roster[0];
+    const receivers = this.qbAthlete ? roster : roster.slice(1);
+    const def = this.defensePlayers();
     this.place(qb, 0, L - 2.2 * d);
-    this.place(wr, 7 * side, L - 0.6 * d);
-    this.place(def[0], 7 * side, L + 4 * d);
-    def[0].role = 'cover';
-    this.place(def[1], -2 * side, L + 2.6 * d);
-    def[1].role = 'rush';
+    // receivers split wide, a third one in the slot
+    const spots = [7 * side, -7 * side, 2.6 * side];
+    receivers.forEach((wr, i) => this.place(wr, spots[i] ?? 0, L - 0.6 * d));
+    // one rusher counts the Mississippis; everyone else lines up on a receiver
+    const rusher = def[def.length - 1];
+    def.forEach((dd, i) => {
+      if (dd === rusher) { dd.role = 'rush'; dd.mark = null; this.place(dd, this.size === 2 ? -2 * side : 0, L + 2.6 * d); return; }
+      const wr = receivers[i] ?? receivers[0];
+      dd.role = 'cover'; dd.mark = wr;
+      this.place(dd, wr.x, L + 4 * d);
+    });
     // the offence faces downfield (away from the camera); the defence faces the offence (toward it)
-    for (const a of off) { a.away = true; a.flip = 1; }
+    for (const a of [qb, ...receivers]) { a.away = true; a.flip = 1; }
     for (const a of def) { a.away = false; a.flip = 1; }
-    // route for the receiver
+    // distinct routes for the receivers
     const routes: RouteName[] = ['go', 'slant', 'out', 'curl', 'post', 'drag'];
-    wr.routeName = routes[Math.floor(Math.random() * routes.length)];
-    wr.route = routeWaypoints(wr.routeName, { x: wr.x, y: wr.y }, d, this.cfg);
-    wr.routeIdx = 0;
-    // controlled athletes: humans control their own character (idx 0) by default; on defence the rusher
+    for (let i = routes.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [routes[i], routes[j]] = [routes[j], routes[i]]; }
+    receivers.forEach((wr, i) => {
+      wr.routeName = routes[i];
+      wr.route = routeWaypoints(wr.routeName, { x: wr.x, y: wr.y }, d, this.cfg);
+      wr.routeIdx = 0;
+    });
+    // controlled athletes: the all-time QB is always slot 0's; otherwise humans take their QB on offence and the rusher on defence
     for (const slot of [0, 1] as const) {
+      if (this.allTime) { this.controlled[slot] = slot === 0 ? qb : null; continue; }
       if (this.isAI(slot)) { this.controlled[slot] = null; continue; }
       const team = slot as Team;
       if (team === s.offense) this.controlled[slot] = qb;
-      else this.controlled[slot] = def[1];
+      else this.controlled[slot] = rusher;
     }
     this.holder = qb;
     this.pass = null;
@@ -321,11 +377,11 @@ export class FootballScene extends BaseGameScene {
     this.meter.setVisible(false);
     this.meterLabel.setVisible(false);
     this.refreshHud();
-    const humanOff = !this.isAI(s.offense);
+    const humanOff = this.offenseIsHuman();
     const touch = this.useTouch;
-    this.setStatus(humanOff ? `${this.name(s.offense)}: ${touch ? 'tap the field to HIKE' : 'press F to HIKE (or tap the field)'}` : `${this.name(s.offense)} has the ball — get ready!`);
+    this.setStatus(humanOff ? `${this.offenseLabel()}: ${touch ? 'tap the field to HIKE' : 'press F to HIKE (or tap the field)'}` : `${this.name(s.offense)}'s team has the ball — get ready!`);
     this.prompt.setText(humanOff
-      ? (touch ? 'After the hike: press-hold or swipe on the field to throw there' : 'After the hike: hold F to throw to your receiver, or press-hold on the field')
+      ? (touch ? 'After the hike: press-hold or swipe on the field to throw there' : `After the hike: hold F to throw to ${this.size === 2 ? 'your receiver' : 'the open receiver'}, or press-hold on the field`)
       : (touch ? 'Stick moves your defender • tap the field to switch' : 'Touch the ball carrier to stop the play • G switches'));
   }
 
@@ -341,15 +397,19 @@ export class FootballScene extends BaseGameScene {
     Audio.sfx('click');
     const off = this.state.offense;
     const touch = this.useTouch;
-    this.setStatus(!this.isAI(off) ? (touch ? 'Run with the stick, or press-hold / swipe where to throw' : 'Run, or hold F / press-hold on the field to throw') : 'Defend! Touch the ball carrier');
+    void off;
+    this.setStatus(this.offenseIsHuman() ? (this.allTime ? (touch ? 'All-time QB: press-hold / swipe where to throw (no running it)' : 'All-time QB: hold F or press-hold on the field to throw (no running it)') : touch ? 'Run with the stick, or press-hold / swipe where to throw' : 'Run, or hold F / press-hold on the field to throw') : 'Defend! Touch the ball carrier');
     this.prompt.setText(this.state.returning ? '' : 'One forward pass per play, from behind the line');
   }
 
   /** Throw to a spot on the field with a given power (0..1). The teammate becomes the intended receiver. */
   private throwPassTo(qb: Athlete, spot: Vec, power: number): void {
     if (this.passUsed) return;
-    const mate = this.athletes.find((a) => a.team === qb.team && a !== qb)!;
     const to = { x: clampX(spot.x, this.cfg), y: Math.max(-this.cfg.endZone + 0.5, Math.min(this.cfg.fieldLength + this.cfg.endZone - 0.5, spot.y)) };
+    // the receiver who can get to that spot soonest goes after it
+    const recv = this.receiversOf(qb);
+    const eta = (r: Athlete) => { const lp = leadPoint(r, 2, this.cfg); return dist(lp, to); };
+    const mate = recv.reduce((b, r) => (eta(r) < eta(b) ? r : b), recv[0]);
     this.pass = makePass({ x: qb.x, y: qb.y }, to, this.cfg, power);
     this.passTarget = mate;
     this.passUsed = true;
@@ -440,6 +500,7 @@ export class FootballScene extends BaseGameScene {
 
   /** The human slot whose turn the pointer belongs to: the offence's human if any, else the defence's. */
   private pointerSlot(): 0 | 1 | null {
+    if (this.allTime) return 0;
     const off = this.state.offense;
     if (!this.isAI(off)) return off as 0 | 1;
     const def = other(off);
@@ -553,14 +614,17 @@ export class FootballScene extends BaseGameScene {
       if (c.justDown('b')) this.switchControlled(slot);
       if (a.team === off && c.justDown('a')) { this.snap(); return; }
     }
-    if (this.isAI(off) && this.preT > FOOTBALL_VISUAL.aiSnapDelay) this.snap();
+    if (!this.offenseIsHuman() && this.preT > FOOTBALL_VISUAL.aiSnapDelay) this.snap();
     for (const a of this.athletes) { a.vx = 0; a.vy = 0; }
   }
 
   private switchControlled(slot: 0 | 1): void {
     const cur = this.controlled[slot];
-    if (!cur) return;
-    const mate = this.athletes.find((a) => a.team === cur.team && a !== cur)!;
+    if (!cur || this.allTime) return;
+    const team = this.teamPlayers(cur.team);
+    const i = team.indexOf(cur);
+    const mate = team[(i + 1) % team.length];
+    if (mate === cur) return;
     this.controlled[slot] = mate;
     Audio.sfx('tick');
   }
@@ -570,7 +634,7 @@ export class FootballScene extends BaseGameScene {
     if (!cur) return;
     const team = cur.team;
     const target = this.holder ? { x: this.holder.x, y: this.holder.y } : this.pass ? this.pass.to : this.ball;
-    const best = this.athletes.filter((a) => a.team === team).reduce((b, a) => (dist(a, target) < dist(b, target) ? a : b));
+    const best = this.teamPlayers(team).reduce((b, a) => (dist(a, target) < dist(b, target) ? a : b));
     if (best !== cur) { this.controlled[slot] = best; Audio.sfx('tick'); }
   }
 
@@ -579,8 +643,8 @@ export class FootballScene extends BaseGameScene {
     if (this.graceT > 0) this.graceT -= dt;
     const s = this.state;
     const off = s.offense;
-    const defenders = this.athletes.filter((a) => a.team !== off);
-    const offense = this.athletes.filter((a) => a.team === off);
+    const defenders = this.defensePlayers();
+    const offense = this.offensePlayers();
     const human = (a: Athlete): 0 | 1 | null => (this.controlled[0] === a ? 0 : this.controlled[1] === a ? 1 : null);
     const aiSpeed = this.cfg.playerSpeed * (this.cfg.aiSpeedMin + this.ai * (this.cfg.aiSpeedMax - this.cfg.aiSpeedMin));
 
@@ -590,10 +654,11 @@ export class FootballScene extends BaseGameScene {
       if (c && c.justDown('b')) this.switchControlled(slot);
     }
     // the Mississippi count, shown while the offence still has time to throw
-    if (!this.passUsed && !s.returning && this.holder && this.holder.team === off && !this.isAI(off) && this.playT < this.rushDelay() && this.noticeT <= 0) {
+    const humanOff = this.offenseIsHuman();
+    if (!this.passUsed && !s.returning && this.holder && this.holder.team === off && humanOff && this.playT < this.rushDelay() && this.noticeT <= 0) {
       const n = Math.min(3, Math.floor(this.playT) + 1);
       this.setStatus(`${n} Mississippi…  (throw before the rush!)`);
-    } else if (!this.passUsed && !s.returning && this.holder && this.holder.team === off && !this.isAI(off) && this.noticeT <= 0 && this.playT >= this.rushDelay() && this.playT < this.rushDelay() + 0.05) {
+    } else if (!this.passUsed && !s.returning && this.holder && this.holder.team === off && humanOff && this.noticeT <= 0 && this.playT >= this.rushDelay() && this.playT < this.rushDelay() + 0.05) {
       this.setStatus('RUSH IS ON!');
     }
     // --- pointer charge (press-hold on the field) ---
@@ -608,6 +673,11 @@ export class FootballScene extends BaseGameScene {
       if (h !== null) {
         const ax = this.axisFor(h);
         moveByInput(a, ax.x, ax.y, this.cfg.playerSpeed, dt);
+        if (this.allTime && a === this.qbAthlete && this.holder === a && !s.returning) {
+          // backyard rule: the all-time QB throws, never runs it past the line
+          const limit = s.lineOfScrimmage - this.dir * 0.3;
+          if (this.dir === 1 ? a.y > limit : a.y < limit) { a.y = limit; a.vy = 0; this.notice("All-time QB can't run it — throw!"); }
+        }
         const c = this.ctrl[h]!;
         if (this.holder === a) {
           const canPass = !this.passUsed && !s.returning && canForwardPass(off, a.y, s.lineOfScrimmage);
@@ -622,8 +692,7 @@ export class FootballScene extends BaseGameScene {
             this.meter.set(p);
             if (!canPass) { this.charging = false; this.meter.setVisible(false); this.meterLabel.setVisible(false); this.notice('Crossed the line — pass is off!'); }
             else if (c.justReleased('a') || !c.isDown('a')) {
-              const mate = offense.find((o) => o !== a)!;
-              this.throwToReceiver(a, mate, p);
+              this.throwToReceiver(a, this.bestReceiver(a), p);
             }
           } else if (this.charging && this.gesture && !canPass) {
             this.charging = false; this.gesture = null; this.meter.setVisible(false); this.meterLabel.setVisible(false); this.notice('Crossed the line — pass is off!');
@@ -696,6 +765,7 @@ export class FootballScene extends BaseGameScene {
         this.holder = target;
         this.pass = null;
         this.graceT = 0;
+        if (this.allTime) this.controlled[0] = target;
         Audio.sfx('catch');
         impact(this, target.sprite.x, target.sprite.y - 60, 0x4ff0ff, 8, 700, 6);
         this.setStatus('CAUGHT! Run!');
@@ -706,6 +776,7 @@ export class FootballScene extends BaseGameScene {
         if (dist(pos, target) <= this.cfg.catchRadius * 1.15) {
           this.holder = target;
           this.pass = null;
+          if (this.allTime) this.controlled[0] = target;
           Audio.sfx('catch');
           this.setStatus('CAUGHT! Run!');
           return;
@@ -731,6 +802,7 @@ export class FootballScene extends BaseGameScene {
     this.announce('INTERCEPTION!', { color: '#4ff0ff', size: this.portrait ? 56 : 72, y: this.fieldTop + 180, hold: 900 });
     this.react(dfd.team, 'taunt', dfd.sprite.x, dfd.sprite.y - 120);
     for (const slot of [0, 1] as const) {
+      if (this.allTime) { this.controlled[slot] = slot === 0 ? dfd : null; continue; }
       if (!this.isAI(slot) && (slot as Team) === dfd.team) this.controlled[slot] = dfd;
     }
     this.refreshHud();
@@ -758,10 +830,11 @@ export class FootballScene extends BaseGameScene {
   private aiCarrier(a: Athlete, offense: Athlete[], defenders: Athlete[], speed: number, dt: number): void {
     const s = this.state;
     const isQb = !this.passUsed && !s.returning && canForwardPass(s.offense, a.y, s.lineOfScrimmage);
-    const mate = offense.find((o) => o !== a)!;
+    void offense;
     const nearDef = defenders.reduce((b, dd) => (dist(dd, a) < dist(b, a) ? dd : b), defenders[0]);
     const rushDist = dist(nearDef, a);
     if (isQb) {
+      const mate = this.bestReceiver(a);
       const open = Math.min(...defenders.map((dd) => dist(dd, mate)));
       const humanMate = this.controlled.some((c) => c === mate);
       const wantThrow = this.qbThrowRequested || (this.playT > this.aiQbDecision && (open > 2.6 - this.ai * 0.9 || this.playT > this.aiQbDecision + 1.6));
@@ -817,7 +890,7 @@ export class FootballScene extends BaseGameScene {
       moveToward(a, carrier.x + carrier.vx * lead, carrier.y + carrier.vy * lead, speed * react, dt);
       return;
     }
-    const wr = offense.find((o) => o !== carrier) ?? offense[1];
+    const wr = (a.mark && a.mark !== carrier ? a.mark : null) ?? offense.find((o) => o !== carrier && o !== this.qbAthlete) ?? offense[0];
     const tx = wr.x + wr.vx * (0.1 + this.ai * 0.15);
     const ty = wr.y + d * (1.6 - this.ai * 0.6);
     moveToward(a, tx, ty, speed * react, dt, 0.3);
@@ -1196,20 +1269,23 @@ export class FootballScene extends BaseGameScene {
       if (p.visible) this.cueRing(p.sx, p.sy, p.scale * 1.15, 0xf5c518, 0.9);
     }
     // route arrow for the AI receiver on a human-controlled offence (pre-snap and early in the play)
-    const humanOffense = !this.isAI(off);
-    const wr = offense.find((a) => a !== this.holder && !controlledSet.has(a));
-    if (humanOffense && wr && (this.phase === 'pre' || (this.phase === 'live' && this.playT < 2.2 && !this.passUsed)) && wr.route.length) {
-      g.lineStyle(5, 0xf5c518, 0.8);
-      let prev: Vec = { x: wr.x, y: wr.y };
-      for (let i = wr.routeIdx; i < wr.route.length; i++) {
-        this.segment(g, prev.x, prev.y, wr.route[i].x, wr.route[i].y);
-        prev = wr.route[i];
-      }
-      const end = this.screen(prev.x, prev.y);
-      if (end.visible && end.scale > 0) {
-        g.fillStyle(0xf5c518, 0.9);
-        const s = Math.max(6, end.scale * 0.5);
-        g.fillTriangle(end.sx - s, end.sy + s * 0.4, end.sx + s, end.sy + s * 0.4, end.sx, end.sy - s);
+    const humanOffense = this.offenseIsHuman();
+    const qbNow = this.holder && this.holder.team === off ? this.holder : offense.find((a) => a === this.qbAthlete) ?? offense[0];
+    const wrs = offense.filter((a) => a !== qbNow && a !== this.holder && !controlledSet.has(a) && a.route.length);
+    if (humanOffense && (this.phase === 'pre' || (this.phase === 'live' && this.playT < 2.2 && !this.passUsed))) {
+      for (const wr of wrs) {
+        g.lineStyle(5, 0xf5c518, 0.8);
+        let prev: Vec = { x: wr.x, y: wr.y };
+        for (let i = wr.routeIdx; i < wr.route.length; i++) {
+          this.segment(g, prev.x, prev.y, wr.route[i].x, wr.route[i].y);
+          prev = wr.route[i];
+        }
+        const end = this.screen(prev.x, prev.y);
+        if (end.visible && end.scale > 0) {
+          g.fillStyle(0xf5c518, 0.9);
+          const s = Math.max(6, end.scale * 0.5);
+          g.fillTriangle(end.sx - s, end.sy + s * 0.4, end.sx + s, end.sy + s * 0.4, end.sx, end.sy - s);
+        }
       }
     }
     // tap-to-hike hint over the ball pre-snap
@@ -1223,11 +1299,12 @@ export class FootballScene extends BaseGameScene {
     // receiver ring + throw preview while charging (human QB)
     if (this.phase === 'live' && this.holder && controlledSet.has(this.holder) && !this.passUsed && !this.state.returning) {
       const qb = this.holder;
-      const mate = offense.find((a) => a !== qb)!;
-      const p = this.screen(mate.x, mate.y);
-      if (p.visible) {
-        this.cueRing(p.sx, p.sy, p.scale * 1.0, 0x4ff0ff, 0.85);
-        this.targetLabel.setVisible(true).setPosition(p.sx, p.sy - p.scale * 1.9 / 220 * 230);
+      const mate = this.bestReceiver(qb);
+      for (const r of this.receiversOf(qb)) {
+        const p = this.screen(r.x, r.y);
+        if (!p.visible) continue;
+        this.cueRing(p.sx, p.sy, p.scale * 1.0, 0x4ff0ff, r === mate ? 0.85 : 0.45);
+        if (r === mate) this.targetLabel.setVisible(true).setPosition(p.sx, p.sy - p.scale * 1.9 / 220 * 230).setText(this.size === 2 ? 'YOUR RECEIVER' : 'OPEN');
       }
       if (this.charging) {
         const power = Math.min(1, this.chargeT / this.cfg.chargeTime);

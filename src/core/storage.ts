@@ -1,4 +1,5 @@
 import type { CharacterId } from './characters';
+import type { FootballFormat } from '../games/football/teams';
 import type { Difficulty, GameId, Mode } from './constants';
 
 export interface Settings {
@@ -13,6 +14,10 @@ export interface Settings {
   touch: 'auto' | 'on' | 'off';
   /** Derby batting: 'tap' = tap where the ball is when it arrives; 'classic' = aim reticle + SWING button. */
   derbyHitMode: 'tap' | 'classic';
+  /** Football: team size / all-time QB, the two rosters (captain first) and who plays all-time QB. */
+  footballFormat: FootballFormat;
+  footballTeams: [CharacterId[], CharacterId[]];
+  footballQb: CharacterId;
   seenHowTo: Partial<Record<GameId, boolean>>;
 }
 
@@ -42,6 +47,9 @@ export const DEFAULT_SETTINGS: Settings = {
   p2: 'vinnie',
   touch: 'auto',
   derbyHitMode: 'tap',
+  footballFormat: '2v2',
+  footballTeams: [['will', 'bryan'], ['vinnie', 'ben']],
+  footballQb: 'dan',
   seenHowTo: {},
 };
 

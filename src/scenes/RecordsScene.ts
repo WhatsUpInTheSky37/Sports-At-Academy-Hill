@@ -19,20 +19,20 @@ export class RecordsScene extends Phaser.Scene {
     const pw = Math.min(W - 60, 1500);
     const left = W / 2 - pw / 2;
     makePanel(this, W / 2, H / 2 + 40, pw, H - 180);
-    const colX = [left + 40, ...CHARACTER_IDS.map((_, i) => left + pw * (0.42 + i * 0.145))];
+    const colX = [left + 30, ...CHARACTER_IDS.map((_, i) => left + pw * (0.26 + i * 0.118))];
     const top = 150;
     this.add.text(colX[0], top + 20, 'Game', displayStyle(24, '#f5c518', { strokeThickness: 0 })).setOrigin(0, 0.5);
     CHARACTER_IDS.forEach((id, i) => {
-      this.add.image(colX[i + 1], top + 10, `portrait-${id}`).setScale(0.225);
-      this.add.text(colX[i + 1], top + 40, CHARACTERS[id].name, textStyle(18, THEME.textDim)).setOrigin(0.5, 0);
+      this.add.image(colX[i + 1], top + 10, `portrait-${id}`).setScale(P ? 0.19 : 0.225);
+      this.add.text(colX[i + 1], top + 40, `${CHARACTERS[id].name} ${CHARACTERS[id].last}`, textStyle(P ? 15 : 18, THEME.textDim)).setOrigin(0.5, 0);
     });
     const rowH = P ? 80 : 62;
     GAME_ORDER.forEach((gid, row) => {
       const y = top + 110 + row * rowH;
-      this.add.text(colX[0], y, GAMES[gid].short, textStyle(26, '#ffffff')).setOrigin(0, 0.5);
+      this.add.text(colX[0], y, GAMES[gid].short, textStyle(P ? 20 : 24, '#ffffff')).setOrigin(0, 0.5);
       CHARACTER_IDS.forEach((cid, i) => {
         const wl = r.games[gid]?.[cid];
-        this.add.text(colX[i + 1], y, wl ? `${wl.wins}-${wl.losses}` : '–', textStyle(26, wl ? '#ffffff' : THEME.textDim)).setOrigin(0.5);
+        this.add.text(colX[i + 1], y, wl ? `${wl.wins}-${wl.losses}` : '–', textStyle(P ? 20 : 24, wl ? '#ffffff' : THEME.textDim)).setOrigin(0.5);
       });
       this.add.rectangle(W / 2, y + rowH / 2, pw - 80, 2, 0xffffff, 0.12);
     });
