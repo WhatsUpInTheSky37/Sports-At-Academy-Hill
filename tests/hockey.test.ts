@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
-  DEFAULT_SHOOTOUT, aiShotPlan, attemptsLeft, createShooter, createShootout, goalieHome, openCorner, pokeRate, puckPosition, recordAttempt, resolveShot, stepShooter,
+  DEFAULT_SHOOTOUT, aiShotPlan, aimShot, attemptsLeft, createGoalie, createShooter, createShootout, goalieCover, goalieFree, goalieHome, judgeShot, openCorner, pokeRate, puckPosition, recordAttempt, resolveShot, startDive, stepGoalie, stepShooter, tryPoke,
 } from '../src/games/hockey/shootout';
 
 const cfg = DEFAULT_SHOOTOUT;
@@ -133,5 +133,67 @@ describe('shootout goalie and shots', () => {
       expect(p.targetZ).toBeGreaterThan(cfg.startZ);
       expect(p.inset).toBeGreaterThan(0.1);
     }
+  });
+});
+
+describe('human goalie', () => {
+  it('slides with the stick, stays inside the crease, and cannot slide while committed', () => {
+    const g = createGoalie();
+    stepGoalie(g, 1, 0.2, cfg);
+    expect(g.x).toBeCloseTo(cfg.goalie.humanSpeed * 0.2, 5);
+    stepGoalie(g, 1, 5, cfg);
+    expect(g.x).toBeCloseTo(cfg.goalie.maxX, 5);
+    g.x = 0;
+    g.down = 0.3;
+    stepGoalie(g, 1, 0.1, cfg);
+    expect(g.x).toBe(0);
+    expect(g.down).toBeCloseTo(0.2, 5);
+  });
+
+  it('a dive moves fast toward a post, then leaves the goalie down and sprawled wide but open up top', () => {
+    const g = createGoalie();
+    expect(startDive(g, 1)).toBe(true);
+    expect(startDive(g, -1)).toBe(false); // already committed
+    stepGoalie(g, -1, cfg.goalie.diveTime / 2, cfg); // stick input ignored mid-dive
+    expect(g.x).toBeGreaterThan(0.5);
+    const sprawled = goalieCover(g, cfg);
+    expect(sprawled.padsHalf).toBeGreaterThan(cfg.goalie.padsHalf);
+    expect(sprawled.height).toBe(0);
+    stepGoalie(g, 0, cfg.goalie.diveTime, cfg);
+    expect(g.dive).toBeNull();
+    expect(g.down).toBeGreaterThan(0);
+    expect(goalieFree(g)).toBe(false);
+    stepGoalie(g, 0, cfg.goalie.diveDown + 0.01, cfg);
+    expect(goalieFree(g)).toBe(true);
+  });
+
+  it('a dive to the right stops a low shot in the right corner that a set goalie in the middle would not', () => {
+    const corner = { x: cfg.goalW / 2 - 0.15, y: 0.25 };
+    expect(judgeShot(corner.x, corner.y, 0, cfg)).toBe('goal');
+    const g = createGoalie();
+    startDive(g, 1);
+    stepGoalie(g, 0, cfg.goalie.diveTime, cfg);
+    expect(judgeShot(corner.x, corner.y, g.x, cfg, goalieCover(g, cfg))).toBe('save');
+    // but a high shot over the sprawled goalie goes in
+    expect(judgeShot(corner.x, cfg.goalH - 0.1, g.x, cfg, goalieCover(g, cfg))).toBe('goal');
+  });
+
+  it('a poke check takes the puck when it is within reach and leaves the goalie committed when it is not', () => {
+    const g = createGoalie();
+    const near = { x: 0.3, z: cfg.netZ - cfg.goalie.depth - 1.2 };
+    expect(tryPoke(g, near, cfg)).toBe('poked');
+    expect(goalieFree(g)).toBe(true);
+    const far = { x: 0, z: cfg.netZ - 5 };
+    expect(tryPoke(g, far, cfg)).toBe('missed');
+    expect(g.poke).toBeCloseTo(cfg.goalie.pokeTime, 5);
+    expect(tryPoke(g, near, cfg)).toBe('busy');
+  });
+
+  it('aimShot keeps the arrival point and uses the slower puck for a person in goal', () => {
+    const from = { x: 0, z: cfg.netZ - 6 };
+    const a = aimShot(from, { x: 0.5, y: 0.6 }, 0, cfg, exact, cfg.shotSpeedVsHuman);
+    expect(a.x).toBeCloseTo(0.5, 3);
+    expect(a.y).toBeCloseTo(0.6, 3);
+    expect(a.travel).toBeGreaterThan(aimShot(from, { x: 0.5, y: 0.6 }, 0, cfg, exact).travel);
   });
 });

@@ -13,7 +13,7 @@ export type BasePoseName =
   | 'shoot0' | 'shoot1' | 'throw0' | 'throw1' | 'cheer0' | 'cheer1' | 'sad' | 'grapple' | 'down' | 'crouch' | 'push' | 'dizzy'
   | 'bat0' | 'bat1' | 'bat2' | 'bat3'
   | 'skate0' | 'skate1' | 'goalie' | 'wrist'
-  | 'punch' | 'kick' | 'pin';
+  | 'punch' | 'kick' | 'pin' | 'diveL' | 'diveR';
 /** Every pose also exists as a back view (`back-<pose>`) for behind-the-player camera angles. */
 export type PoseName = BasePoseName | `back-${BasePoseName}`;
 
@@ -70,6 +70,9 @@ const BASE_POSES: Record<BasePoseName, Pose> = {
   kick: { lArm: 55, rArm: 25, lBend: 60, rBend: 70, lLeg: 85, rLeg: -8, face: 'shout', lean: -12, crouch: 0.06, armsFront: true },
   // pin cover: lying across the opponent, one arm hooked down over them, the other thrown up for the count
   pin: { lArm: 95, rArm: 105, lBend: 10, rBend: 25, lLeg: 36, rLeg: -30, face: 'shout', rotate: 62, armsFront: true },
+  // goalie dives: stretched out full length toward the post (rotation decides the side, mirroring does not)
+  diveL: { lArm: 165, rArm: 150, lBend: 10, rBend: 20, lLeg: 30, rLeg: -35, face: 'shout', rotate: -72, armsFront: true },
+  diveR: { lArm: 150, rArm: 165, lBend: 20, rBend: 10, lLeg: 35, rLeg: -30, face: 'shout', rotate: 72, armsFront: true },
 };
 
 /**
