@@ -983,10 +983,21 @@ export function sheetKey(id: CharacterId, facing: 1 | -1): string { return facin
  * Build a character's two pose sheets if they are not there yet. Each sheet packs the poses in a
  * near-square grid (keeps the texture under the 4096 px limit of older GPUs even at 2x).
  */
-export function ensureCharacterSheet(scene: Phaser.Scene, id: CharacterId): void {
-  if (scene.textures.exists(sheetKey(id, 1))) return;
+/** Resolution each character's sheet was built at (a crowded scene may ask for less than SHEET_RES). */
+const sheetResOf = new Map<CharacterId, number>();
+
+/** The resolution of a character's current sheet (SHEET_RES until a sheet says otherwise). */
+export function sheetRes(id: CharacterId): number { return sheetResOf.get(id) ?? SHEET_RES; }
+
+export function ensureCharacterSheet(scene: Phaser.Scene, id: CharacterId, res = SHEET_RES): void {
+  if (scene.textures.exists(sheetKey(id, 1))) {
+    if (sheetResOf.get(id) === res) return;
+    // built at another resolution: rebuild at the one asked for
+    for (const facing of [1, -1] as const) scene.textures.remove(sheetKey(id, facing));
+  }
   const ch = CHARACTERS[id];
-  const R = SHEET_RES;
+  const R = res;
+  sheetResOf.set(id, res);
   const n = POSE_NAMES.length;
   const cols = Math.ceil(Math.sqrt(n));
   const rows = Math.ceil(n / cols);
@@ -1008,14 +1019,19 @@ export function ensureCharacterSheet(scene: Phaser.Scene, id: CharacterId): void
   }
 }
 
-/** Drop the pose sheets of every character not in `keep` (they are rebuilt on demand). */
+/**
+ * Drop the pose sheets of every character not in `keep` (they are rebuilt on demand). A kept sheet that
+ * was built at a reduced resolution (a crowded football game on a phone) goes too, so the next scene gets
+ * the normal one back.
+ */
 export function purgeCharacterSheets(scene: Phaser.Scene, keep: CharacterId[]): void {
   for (const id of Object.keys(CHARACTERS) as CharacterId[]) {
-    if (keep.includes(id)) continue;
+    if (keep.includes(id) && (sheetResOf.get(id) ?? SHEET_RES) === SHEET_RES) continue;
     for (const facing of [1, -1] as const) {
       const key = sheetKey(id, facing);
       if (scene.textures.exists(key)) scene.textures.remove(key);
     }
+    sheetResOf.delete(id);
   }
 }
 
@@ -1042,9 +1058,9 @@ export class CharacterSprite extends Phaser.GameObjects.Container {
     super(scene, x, y);
     this._character = character;
     this._charScale = scale;
-    ensureCharacterSheet(scene, character.id);
+    ensureCharacterSheet(scene, character.id, sheetRes(character.id)); // keep a sheet a scene built at its own resolution
     this.shadow = scene.add.image(0, 0, 'shadow').setScale(1.1 * scale, 0.9 * scale).setAlpha(0.9);
-    this.sprite = scene.add.image(0, -FRAME * 0.5 * scale + 14 * scale, sheetKey(character.id, 1), 'idle0').setScale(scale / SHEET_RES);
+    this.sprite = scene.add.image(0, -FRAME * 0.5 * scale + 14 * scale, sheetKey(character.id, 1), 'idle0').setScale(scale / sheetRes(character.id));
     this.facing = 1;
     this.add([this.shadow, this.sprite]);
     scene.add.existing(this);
@@ -1069,7 +1085,7 @@ export class CharacterSprite extends Phaser.GameObjects.Container {
   rescale(scale: number): this {
     if (scale === this._charScale) return this;
     this._charScale = scale;
-    this.sprite.setScale(scale / SHEET_RES);
+    this.sprite.setScale(scale / sheetRes(this._character.id));
     this.sprite.setY(-FRAME * 0.5 * scale + 14 * scale);
     this.shadow.setScale(1.1 * scale, 0.9 * scale);
     return this;
@@ -1087,8 +1103,9 @@ export class CharacterSprite extends Phaser.GameObjects.Container {
   /** Swap in another character (scenes that reuse one sprite for whoever is up). */
   setCharacter(ch: Character): this {
     if (ch.id === this._character.id) return this;
-    ensureCharacterSheet(this.scene, ch.id);
+    ensureCharacterSheet(this.scene, ch.id, sheetRes(ch.id));
     this._character = ch;
+    this.sprite.setScale(this._charScale / sheetRes(ch.id));
     this.applyFrame(this.currentPose());
     return this;
   }

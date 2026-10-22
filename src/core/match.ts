@@ -2,6 +2,7 @@ import { CHARACTERS, type Character, type CharacterId } from './characters';
 import type { Difficulty, GameId, Mode } from './constants';
 import type { ChampionshipState } from './championship';
 import { Storage } from './storage';
+import type { FootballSetup } from '../games/football/teams';
 
 export interface PlayerInfo {
   slot: 0 | 1;
@@ -15,6 +16,8 @@ export interface MatchConfig {
   difficulty: Difficulty;
   players: [PlayerInfo, PlayerInfo];
   championship?: ChampionshipState;
+  /** Football only: rosters, team size and the all-time-QB option (defaults to 2v2 with the captains). */
+  football?: FootballSetup;
 }
 
 export interface MatchResult {
@@ -25,7 +28,7 @@ export interface MatchResult {
   scores: [string, string];
 }
 
-export function buildMatch(gameId: GameId, opts: { mode: Mode; difficulty: Difficulty; p1: CharacterId; p2: CharacterId; championship?: ChampionshipState }): MatchConfig {
+export function buildMatch(gameId: GameId, opts: { mode: Mode; difficulty: Difficulty; p1: CharacterId; p2: CharacterId; championship?: ChampionshipState; football?: FootballSetup }): MatchConfig {
   return {
     gameId,
     mode: opts.mode,
@@ -35,6 +38,7 @@ export function buildMatch(gameId: GameId, opts: { mode: Mode; difficulty: Diffi
       { slot: 1, character: CHARACTERS[opts.p2], isAI: opts.mode === 'single' },
     ],
     championship: opts.championship,
+    football: opts.football,
   };
 }
 

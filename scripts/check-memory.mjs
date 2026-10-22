@@ -17,7 +17,8 @@ async function run(label, ctxOpts) {
   await page.waitForTimeout(500);
   const out = [`menu ${JSON.stringify(await page.evaluate(measure))}`];
   for (const key of ['DerbyScene', 'HorseScene', 'HockeyScene', 'FootballScene', 'PoolScene', 'WrestlingScene', 'DartsScene']) {
-    await page.evaluate((key) => { const g = window.__game; const m = g.registry.get('__buildMatch')(key, 'single'); g.scene.getScenes(false).filter((s) => s.scene.isActive() || s.scene.isPaused()).forEach((s) => g.scene.stop(s.scene.key)); g.scene.start(key, { match: m }); }, key);
+    // football is measured in its heaviest form: 3 on 3 with an all-time QB, all seven kids on the field
+    await page.evaluate((key) => { const g = window.__game; const extra = key === 'FootballScene' ? { football: { format: '3v3qb', rosters: [['will', 'bryan', 'dan'], ['vinnie', 'ben', 'jimmy']], qb: 'billy' } } : {}; const m = g.registry.get('__buildMatch')(key, 'single', extra); g.scene.getScenes(false).filter((s) => s.scene.isActive() || s.scene.isPaused()).forEach((s) => g.scene.stop(s.scene.key)); g.scene.start(key, { match: m }); }, key);
     await page.waitForTimeout(1500);
     await page.keyboard.press('Space');
     await page.waitForTimeout(800);
