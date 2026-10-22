@@ -56,6 +56,24 @@ async function run(label, viewport, hasTouch) {
   await page.screenshot({ path: `smoke-output/hockey-${label}-shot.png` });
   await step(40);
   await page.screenshot({ path: `smoke-output/hockey-${label}-result.png` });
+  // the CPU's attempt: the human is in goal. Wait for the CPU to start skating, slide left, then dive.
+  for (let i = 0; i < 400; i++) { await step(5); st = await info(); if (st.shooter === 1 && st.phase === 'skate') break; }
+  const goalie = () => page.evaluate(() => { const s = window.__game.scene.getScene('HockeyScene'); return { x: +s.goalieX.toFixed(2), human: s.humanGoalie, dive: !!s.goalie.dive, down: +s.goalie.down.toFixed(2), poke: +s.goalie.poke.toFixed(2), phase: s.phase, buttons: s.ctrlA ? s.ctrlA.buttonObjs.filter((o) => o.visible).length : -1, pose: s.goalieSprite.sprite.frame.name }; });
+  let gst = await goalie();
+  console.log(label, 'in goal:', JSON.stringify(gst));
+  if (!gst.human) { console.log('HUMAN NOT IN GOAL DURING CPU ATTEMPT'); failed = true; }
+  if (hasTouch && gst.buttons !== 6) { console.log('GOALIE BUTTONS NOT SHOWN', gst.buttons); failed = true; }
+  await page.keyboard.down('a'); await step(20); await page.keyboard.up('a');
+  gst = await goalie();
+  console.log(label, 'after sliding left:', JSON.stringify(gst));
+  if (!(gst.x < -0.5)) { console.log('GOALIE DID NOT SLIDE'); failed = true; }
+  await page.screenshot({ path: `smoke-output/hockey-${label}-goalie.png` });
+  await page.keyboard.down('d'); await step(2); await page.keyboard.down('g'); await step(2); await page.keyboard.up('g'); await page.keyboard.up('d');
+  await step(8);
+  gst = await goalie();
+  console.log(label, 'after dive:', JSON.stringify(gst));
+  if (!(gst.dive || gst.down > 0) || !/dive/.test(gst.pose)) { console.log('GOALIE DID NOT DIVE'); failed = true; }
+  await page.screenshot({ path: `smoke-output/hockey-${label}-dive.png` });
   // run until the CPU has taken its attempt
   for (let i = 0; i < 1200; i++) { await step(5); st = await info(); if (st.taken[1] >= 1 && st.phase === 'skate') break; }
   console.log(label, 'attempts taken', st.taken, 'results', st.results, 'sprites', st.sprites);

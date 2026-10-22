@@ -9,7 +9,8 @@ import type { Controls } from '../../core/input';
 import { CharacterSprite, FRAME, handPositions, type PoseName } from '../../art/characters';
 import { createCanvas, paintAsphalt, paintCypress, paintHaze, paintLawnHD, paintPineHD, paintSkyHD, paintTreeHD, paintVignette, rng } from '../../art/environment';
 import {
-  DEFAULT_SHOOTOUT, aiShotPlan, attemptsLeft, createShooter, createShootout, goalieHome, openCorner, pokeRate, puckPosition, recordAttempt, resolveShot, stepShooter,
+  DEFAULT_SHOOTOUT, aiShotPlan, aimShot, attemptsLeft, createGoalie, createShooter, createShootout, goalieCover, goalieHome, judgeShot, openCorner, pokeRate, puckPosition, recordAttempt, resolveShot, startDive, stepGoalie, stepShooter, tryPoke,
+  type Goalie,
   type AiShotPlan, type Shooter, type ShootoutConfig, type ShootoutState, type ShotOutcome, type ShotResult,
 } from './shootout';
 
@@ -59,6 +60,13 @@ export class HockeyScene extends BaseGameScene {
   private ctrlA: Controls | null = null;
   private ctrlB: Controls | null = null;
   private goalieX = 0;
+  /** Human-controlled goalie state (used when the non-shooting player is a person). */
+  private goalie: Goalie = createGoalie();
+  private humanGoalie = false;
+  private lastDive: 1 | -1 = 1;
+  /** CPU shooter is winding up (telegraph for a human goalie). */
+  private winding = false;
+  private shootHint: { g: Phaser.GameObjects.Graphics; title: Phaser.GameObjects.Text; body: Phaser.GameObjects.Text } | null = null;
   private goalieLunge: { from: number; to: number } | null = null;
   private goaliePose: 'goalie' | 'push' | 'sad' | 'cheer' = 'goalie';
   private clock = 0;
@@ -120,7 +128,8 @@ export class HockeyScene extends BaseGameScene {
     const W = this.W, H = this.H, P = this.portrait;
     const joyArea = P ? { x: 0, y: H * 0.58, w: W * 0.5, h: H * 0.42 } : { x: 0, y: H * 0.5, w: W * 0.4, h: H * 0.5 };
     // one set of touch controls for whoever is shooting (turns alternate); keyboard P1 + P2 both work
-    this.ctrlA = this.makeControls(0, { labels: {}, touch: this.useTouch, joyArea });
+    this.ctrlA = this.makeControls(0, { labels: { a: 'POKE', b: 'DIVE' }, touch: this.useTouch, joyArea });
+    this.ctrlA.setButtonsVisible(false);
     this.ctrlB = this.makeControls(1, { labels: {}, touch: false });
     this.beginAttempt();
   }
@@ -392,7 +401,8 @@ export class HockeyScene extends BaseGameScene {
   private buildPanels(): void {
     const W = this.W, H = this.H, P = this.portrait;
     const touchP = P && this.useTouch;
-    const mw = touchP ? W - 340 - 30 : P ? 520 : 600;
+    // portrait touch: leave the bottom-right corner free for the goalie's POKE / DIVE buttons
+    const mw = touchP ? W - 340 - 290 : P ? 520 : 600;
     const mx = touchP ? 340 : W / 2 - mw / 2;
     const my = touchP ? H - 330 : P ? H - 150 : H - 92;
     const panel = this.add.graphics().setDepth(900);
@@ -410,16 +420,16 @@ export class HockeyScene extends BaseGameScene {
       g.fillRoundedRect(x, y, w, 100, 16);
       g.lineStyle(3, THEME.accent, 0.8);
       g.strokeRoundedRect(x, y, w, 100, 16);
-      this.add.text(x + w / 2, y + 12, title, displayStyle(20, '#f5c518', { strokeThickness: 0 })).setOrigin(0.5, 0).setDepth(901);
-      this.add.text(x + w / 2, y + 42, lines.join('\n'), textStyle(18, '#ffffff', { align: 'center', wordWrap: { width: w - 24 } })).setOrigin(0.5, 0).setDepth(901);
+      const t = this.add.text(x + w / 2, y + 12, title, displayStyle(20, '#f5c518', { strokeThickness: 0 })).setOrigin(0.5, 0).setDepth(901);
+      const b = this.add.text(x + w / 2, y + 42, lines.join('\n'), textStyle(18, '#ffffff', { align: 'center', wordWrap: { width: w - 24 } })).setOrigin(0.5, 0).setDepth(901);
+      return { g, title: t, body: b };
     };
     if (this.useTouch) {
-      if (P) hint(W - 30 - 340, H - 150, 'SHOOT', ['Tap the net where', 'you want the puck'], 340);
-      else hint(W - 30 - 330, H - 136, 'SHOOT', ['Tap the net where you want the puck'], 330);
+      this.shootHint = P ? hint(W - 30 - 340, H - 150, 'SHOOT', ['Tap the net where', 'you want the puck'], 340) : hint(W - 30 - 330, H - 136, 'SHOOT', ['Tap the net where you want the puck'], 330);
     } else {
       const y = P ? H - 150 - 44 : H - 136;
       hint(30, y, 'SKATE', ['WASD / Arrows'], P ? 240 : 300);
-      hint(W - 30 - (P ? 240 : 300), y, 'SHOOT', ['Click the net where you want it', 'F / SPACE: open corner'], P ? 240 : 300);
+      this.shootHint = hint(W - 30 - (P ? 240 : 300), y, 'SHOOT', ['Click the net where you want it', 'F / SPACE: open corner'], P ? 240 : 300);
     }
     // attempt dots under each player's HUD panel
     for (const slot of [0, 1] as const) {
@@ -483,14 +493,18 @@ export class HockeyScene extends BaseGameScene {
     if (this.goalieSprite.character.id !== goalieChar.id) { this.goalieSprite.destroy(); this.goalieSprite = new CharacterSprite(this, 0, 0, goalieChar, 1); this.world.add(this.goalieSprite); }
     this.shooter = createShooter(this.cfg);
     this.goalieX = 0;
+    this.goalie = createGoalie();
+    this.humanGoalie = !this.isAI(gl);
+    this.winding = false;
     this.goalieLunge = null;
     this.goaliePose = 'goalie';
     this.shot = null; this.after = null;
     this.clock = this.cfg.shotClock;
     this.aiPlan = this.isAI(sh) ? aiShotPlan(this.ai, this.cfg) : null;
     this.aiDwell = 0;
+    this.applyRoleHints(gl);
     const left = attemptsLeft(s, sh);
-    const sub = s.suddenDeath ? 'sudden death' : `attempt ${s.attempts - left + 1} of ${s.attempts}`;
+    const sub = (s.suddenDeath ? 'sudden death' : `attempt ${s.attempts - left + 1} of ${s.attempts}`) + (this.humanGoalie ? `  •  ${this.name(gl)} in goal` : '');
     this.announce(`${this.name(sh).toUpperCase()} SHOOTS`, { color: '#4ff0ff', size: this.portrait ? 60 : 72, y: this.fieldTop + 200, sub, hold: HOCKEY_VISUAL.introHold });
     Audio.sfx('whistle');
     this.time.delayedCall(HOCKEY_VISUAL.introHold, () => { if (this.phase === 'intro' && !this.finished) this.phase = 'skate'; });
@@ -498,6 +512,62 @@ export class HockeyScene extends BaseGameScene {
 
   /** Goalie level: the match difficulty in single player, an even goalie for pass-and-play. */
   private goalieLevel(): number { return this.match.mode === 'single' ? this.ai : 0.5; }
+
+  /** The controls of whoever is in goal (slot 0 has the touch set; slot 1 is keyboard only). */
+  private goalieControls(gl: 0 | 1): Controls | null { return gl === 0 ? this.ctrlA : this.ctrlB; }
+
+  /** Swap the bottom-right hint and the on-screen buttons between "shoot" and "in goal". */
+  private applyRoleHints(gl: 0 | 1): void {
+    const touchGoalie = this.humanGoalie && gl === 0 && this.useTouch;
+    this.ctrlA?.setButtonsVisible(touchGoalie);
+    const h = this.shootHint;
+    if (!h) return;
+    const show = (v: boolean) => { h.g.setVisible(v); h.title.setVisible(v); h.body.setVisible(v); };
+    if (touchGoalie) { show(false); return; }
+    show(true);
+    if (this.humanGoalie) {
+      h.title.setText('IN GOAL');
+      h.body.setText(gl === 0 ? 'A / D slide  •  F poke check\nG dive toward a post' : 'Arrows slide  •  , poke check\n. dive toward a post');
+    } else if (this.useTouch) {
+      h.title.setText('SHOOT');
+      h.body.setText(this.portrait ? 'Tap the net where\nyou want the puck' : 'Tap the net where you want the puck');
+    } else {
+      h.title.setText('SHOOT');
+      h.body.setText('Click the net where you want it\nF / SPACE: open corner');
+    }
+  }
+
+  /** Per-frame input for a human goalie: slide, poke check, dive. Returns true if the attempt ended (poke). */
+  private humanGoalieInput(dt: number): boolean {
+    const gl: 0 | 1 = this.state.shooter === 0 ? 1 : 0;
+    const c = this.goalieControls(gl);
+    const live = this.phase === 'skate' || this.phase === 'shot' || this.phase === 'intro';
+    let ax = 0;
+    if (c && live) {
+      ax = c.axis.x;
+      const pk = this.phase === 'skate' ? puckPosition(this.shooter, this.cfg) : null;
+      if (c.justDown('a') && this.phase === 'skate' && pk) {
+        const r = tryPoke(this.goalie, pk, this.cfg);
+        if (r === 'poked') {
+          this.goaliePose = 'push';
+          this.after = { from: { x: pk.x, y: 0.03, z: pk.z }, to: { x: pk.x * 2 + (pk.x >= 0 ? 1.5 : -1.5), y: 0.03, z: pk.z - 4 }, dur: 0.6 };
+          this.shotT = 0;
+          Audio.sfx('slap');
+          this.finishAttempt('poked');
+          return true;
+        }
+        if (r === 'missed') Audio.sfx('swing');
+      }
+      if (c.justDown('b') && (this.phase === 'skate' || this.phase === 'shot')) {
+        const puckX = this.phase === 'shot' && this.shot ? this.shot.x : pk ? pk.x : 0;
+        const dir: 1 | -1 = Math.abs(ax) > 0.2 ? (ax > 0 ? 1 : -1) : puckX - this.goalie.x >= 0 ? 1 : -1;
+        if (startDive(this.goalie, dir)) { this.lastDive = dir; Audio.sfx('skate'); }
+      }
+    }
+    stepGoalie(this.goalie, ax, dt, this.cfg);
+    this.goalieX = this.goalie.x;
+    return false;
+  }
 
   private onPointer(p: Phaser.Input.Pointer): void {
     if (this.phase !== 'skate' || this.isAI(this.state.shooter) || this.finished) return;
@@ -525,13 +595,21 @@ export class HockeyScene extends BaseGameScene {
     if (this.phase !== 'skate') return;
     const from = puckPosition(this.shooter, this.cfg);
     const speed = Math.hypot(this.shooter.vx, this.shooter.vz);
-    const res = resolveShot(from, aim, speed, this.goalieX, this.goalieLevel(), this.cfg);
-    this.shot = res;
+    if (this.humanGoalie) {
+      // judged when the puck arrives, against wherever the person has the goalie by then
+      const a = aimShot(from, aim, speed, this.cfg, Math.random, this.cfg.shotSpeedVsHuman);
+      this.shot = { outcome: 'goal', x: a.x, y: a.y, travel: a.travel, goalieX: this.goalieX };
+      this.goalieLunge = null;
+    } else {
+      const res = resolveShot(from, aim, speed, this.goalieX, this.goalieLevel(), this.cfg);
+      this.shot = res;
+      this.goalieLunge = { from: this.goalieX, to: res.goalieX };
+    }
+    this.winding = false;
     this.shotAim = aim;
     this.shotFrom = { x: from.x, y: 0.03, z: from.z };
     this.shotT = 0;
     this.phase = 'shot';
-    this.goalieLunge = { from: this.goalieX, to: res.goalieX };
     this.shooterSprite.setPose('back-wrist');
     this.time.delayedCall(380, () => { if (this.phase !== 'skate') this.shooterSprite.setPose('back-skate0'); });
     Audio.sfx('slap');
@@ -540,6 +618,10 @@ export class HockeyScene extends BaseGameScene {
   private arrive(): void {
     const res = this.shot!;
     const cfg = this.cfg;
+    if (this.humanGoalie) {
+      res.goalieX = this.goalie.x;
+      res.outcome = judgeShot(res.x, res.y, this.goalie.x, cfg, goalieCover(this.goalie, cfg));
+    }
     const endP = { x: res.x, y: res.y, z: cfg.netZ };
     const sideSign = res.x >= 0 ? 1 : -1;
     switch (res.outcome) {
@@ -642,6 +724,8 @@ export class HockeyScene extends BaseGameScene {
         if (d > 0.3) { ax = dx / d; az = dz / d; }
         else {
           this.aiDwell += dt;
+          // against a person in goal the CPU visibly winds up before releasing
+          this.winding = this.humanGoalie && this.aiDwell >= plan.dwell - cfg.windup;
           if (this.aiDwell >= plan.dwell) fire = true;
         }
         if (fire) this.shoot(openCorner(this.goalieX, cfg, { high: plan.high, inset: plan.inset }));
@@ -653,6 +737,11 @@ export class HockeyScene extends BaseGameScene {
       if (this.phase === 'skate') {
         stepShooter(this.shooter, ax, az, dt, cfg);
         const pk = puckPosition(this.shooter, cfg);
+        if (this.humanGoalie) {
+          if (this.humanGoalieInput(dt)) return this.render(dt);
+          this.clock -= dt;
+          if (this.clock <= 0) { this.clock = 0; this.finishAttempt('clock'); }
+        } else {
         // goalie tracks the puck
         const home = goalieHome(pk, cfg);
         const gs = 2.6 + this.goalieLevel() * 1.4;
@@ -667,7 +756,11 @@ export class HockeyScene extends BaseGameScene {
           this.clock -= dt;
           if (this.clock <= 0) { this.clock = 0; this.finishAttempt('clock'); }
         }
+        }
       }
+    } else if (this.humanGoalie && (this.phase === 'intro' || this.phase === 'shot' || this.phase === 'result')) {
+      // the person in goal can still slide (intro), dive (shot) or get back up (result)
+      this.humanGoalieInput(dt);
     }
     if (this.phase === 'shot' && this.shot) {
       this.shotT += dt;
@@ -729,7 +822,7 @@ export class HockeyScene extends BaseGameScene {
         this.skateAnimT += dt * 7;
         sp.setPose(Math.floor(this.skateAnimT) % 2 === 0 ? 'back-skate0' : 'back-skate1');
         if (this.time.now - this.lastSkate > 420) { this.lastSkate = this.time.now; Audio.sfx('skate'); }
-      } else sp.setPose('back-skate0');
+      } else sp.setPose(this.winding ? 'back-wrist' : 'back-skate0');
     }
     // see-through when the shooter stands between the camera and the net
     sp.setAlpha(Math.abs(s.x) < 1.3 && s.z > cfg.netZ - 5.5 ? 0.6 : 1);
@@ -745,8 +838,13 @@ export class HockeyScene extends BaseGameScene {
     const gs = this.goalieSprite;
     gs.setPosition(gp.sx, gp.sy).rescale(gsc).setDepth(1000 - Math.round(gz * 20));
     gs.setFacing(1);
-    if (this.goaliePose === 'cheer') gs.cheer();
-    else gs.setPose(this.goaliePose as PoseName);
+    let gpose: PoseName | 'cheer' = this.goaliePose;
+    if (this.humanGoalie) {
+      if (this.goalie.dive || this.goalie.down > 0) gpose = this.lastDive > 0 ? 'diveR' : 'diveL';
+      else if (this.goalie.poke > 0) gpose = 'push';
+    }
+    if (gpose === 'cheer') gs.cheer();
+    else gs.setPose(gpose);
     const gtip = pr.project(this.goalieX + 0.62, 0.02, gz - 0.35);
     this.placeStick(this.goalieStick, gs, gtip, gsc, 1.15);
 

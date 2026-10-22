@@ -25,6 +25,15 @@ export interface GoalieConfig {
   pokeZone: number;
   pokeBase: number;
   pokePerLevel: number;
+  /** Human goalie: slide speed (m/s), dive speed and duration, how long they are down afterwards, extra pad width while sprawled. */
+  humanSpeed: number;
+  diveSpeed: number;
+  diveTime: number;
+  diveDown: number;
+  diveExtraHalf: number;
+  /** Human poke check: reach (m from the goalie) and how long a missed poke leaves them committed. */
+  pokeReach: number;
+  pokeTime: number;
 }
 
 export interface ShootoutConfig {
@@ -47,6 +56,10 @@ export interface ShootoutConfig {
   shotClock: number;
   attempts: number;
   shotSpeed: number;
+  /** Puck speed when a human is in goal (a touch slower so the dive is readable). */
+  shotSpeedVsHuman: number;
+  /** Seconds the CPU shooter winds up (visible) before releasing against a human goalie. */
+  windup: number;
   /** Aim error (standard deviation, m): base + perMetre * distance + moving * shooter speed. */
   aimErrorBase: number;
   aimErrorPerMetre: number;
@@ -70,6 +83,8 @@ export const DEFAULT_SHOOTOUT: ShootoutConfig = {
   shotClock: 8,
   attempts: 5,
   shotSpeed: 16,
+  shotSpeedVsHuman: 12.5,
+  windup: 0.3,
   aimErrorBase: 0.06,
   aimErrorPerMetre: 0.026,
   aimErrorMoving: 0.025,
@@ -89,6 +104,13 @@ export const DEFAULT_SHOOTOUT: ShootoutConfig = {
     pokeZone: 3.3,
     pokeBase: 0.25,
     pokePerLevel: 0.55,
+    humanSpeed: 3.6,
+    diveSpeed: 6.5,
+    diveTime: 0.28,
+    diveDown: 0.6,
+    diveExtraHalf: 0.32,
+    pokeReach: 1.7,
+    pokeTime: 0.5,
   },
 };
 
@@ -215,31 +237,113 @@ export interface ShotResult {
   goalieX: number;
 }
 
-/**
- * Resolve a shot from `from` aimed at goal-plane point `aim` against a goalie standing at `goalieX`.
- * level: 0 easy .. 1 hard (how fast the goalie reacts). rand: uniform [0,1) source (injectable).
- */
-export function resolveShot(from: { x: number; z: number }, aim: { x: number; y: number }, shooterSpeed: number, goalieX: number, level: number, cfg: ShootoutConfig = DEFAULT_SHOOTOUT, rand: () => number = Math.random): ShotResult {
-  const g = cfg.goalie;
+/** What the goalie covers: half-widths at three heights (m). */
+export interface GoalieCover { padsHalf: number; padsH: number; armsHalf: number; armsH: number; bodyHalf: number; height: number; }
+
+/** Apply the aim error and compute where the puck arrives on the goal plane and how long it takes. */
+export function aimShot(from: { x: number; z: number }, aim: { x: number; y: number }, shooterSpeed: number, cfg: ShootoutConfig = DEFAULT_SHOOTOUT, rand: () => number = Math.random, speed = cfg.shotSpeed): { x: number; y: number; travel: number } {
   const dist = Math.hypot(aim.x - from.x, cfg.netZ - from.z);
   const sd = cfg.aimErrorBase + cfg.aimErrorPerMetre * dist + cfg.aimErrorMoving * Math.abs(shooterSpeed);
   const x = aim.x + gaussian(sd, rand);
   const y = Math.max(0.03, aim.y + gaussian(sd * 0.8, rand));
-  const travel = dist / cfg.shotSpeed;
+  return { x, y, travel: dist / speed };
+}
+
+/** Judge a puck arriving at (x, y) on the goal plane against a goalie at goalieX with the given cover. */
+export function judgeShot(x: number, y: number, goalieX: number, cfg: ShootoutConfig = DEFAULT_SHOOTOUT, cover: GoalieCover = cfg.goalie): ShotResult['outcome'] {
+  const half = cfg.goalW / 2;
+  if (Math.abs(x) > half || y > cfg.goalH) {
+    return Math.abs(x) <= half + 0.09 && y <= cfg.goalH + 0.09 ? 'post' : 'wide';
+  }
+  const dx = Math.abs(x - goalieX);
+  const blocked = (y < cover.padsH && dx < cover.padsHalf) || (y < cover.armsH && dx < cover.armsHalf) || (y < cover.height && dx < cover.bodyHalf);
+  return blocked ? 'save' : 'goal';
+}
+
+/**
+ * Resolve a shot from `from` aimed at goal-plane point `aim` against a CPU goalie standing at `goalieX`.
+ * level: 0 easy .. 1 hard (how fast the goalie reacts). rand: uniform [0,1) source (injectable).
+ */
+export function resolveShot(from: { x: number; z: number }, aim: { x: number; y: number }, shooterSpeed: number, goalieX: number, level: number, cfg: ShootoutConfig = DEFAULT_SHOOTOUT, rand: () => number = Math.random): ShotResult {
+  const g = cfg.goalie;
+  const { x, y, travel } = aimShot(from, aim, shooterSpeed, cfg, rand);
   const react = Math.max(0.05, g.reactBase - g.reactPerLevel * level);
   const speed = g.speedBase + g.speedPerLevel * level;
   const moveT = Math.max(0, travel - react);
   const gx = goalieX + clamp(x - goalieX, -speed * moveT, speed * moveT);
-  const half = cfg.goalW / 2;
-  let outcome: ShotResult['outcome'];
-  if (Math.abs(x) > half || y > cfg.goalH) {
-    outcome = Math.abs(x) <= half + 0.09 && y <= cfg.goalH + 0.09 ? 'post' : 'wide';
+  return { outcome: judgeShot(x, y, gx, cfg), x, y, travel, goalieX: gx };
+}
+
+// ---------------------------------------------------------------------------------------------
+// Human goalie
+// ---------------------------------------------------------------------------------------------
+
+export interface Goalie {
+  x: number;
+  /** Dive in progress: direction and seconds elapsed. */
+  dive: { dir: 1 | -1; t: number } | null;
+  /** Seconds left lying on the ice after a dive. */
+  down: number;
+  /** Seconds left committed to a poke check. */
+  poke: number;
+}
+
+export function createGoalie(): Goalie { return { x: 0, dive: null, down: 0, poke: 0 }; }
+
+/** Can the goalie accept a new movement / dive / poke command right now? */
+export function goalieFree(g: Goalie): boolean { return !g.dive && g.down <= 0 && g.poke <= 0; }
+
+/** Advance a human-controlled goalie: ax is the lateral stick input (-1..1). Sliding is only possible while not committed. */
+export function stepGoalie(g: Goalie, ax: number, dt: number, cfg: ShootoutConfig = DEFAULT_SHOOTOUT): void {
+  const c = cfg.goalie;
+  if (g.dive) {
+    g.dive.t += dt;
+    g.x += g.dive.dir * c.diveSpeed * dt;
+    if (g.dive.t >= c.diveTime) { g.dive = null; g.down = c.diveDown; }
+  } else if (g.down > 0) {
+    g.down = Math.max(0, g.down - dt);
+  } else if (g.poke > 0) {
+    g.poke = Math.max(0, g.poke - dt);
   } else {
-    const dx = Math.abs(x - gx);
-    const blocked = (y < g.padsH && dx < g.padsHalf) || (y < g.armsH && dx < g.armsHalf) || (y < g.height && dx < g.bodyHalf);
-    outcome = blocked ? 'save' : 'goal';
+    g.x += clamp(ax, -1, 1) * c.humanSpeed * dt;
   }
-  return { outcome, x, y, travel, goalieX: gx };
+  g.x = clamp(g.x, -c.maxX, c.maxX);
+}
+
+/** Start a dive toward dir. Ignored while committed. Returns true if the dive started. */
+export function startDive(g: Goalie, dir: 1 | -1): boolean {
+  if (!goalieFree(g)) return false;
+  g.dive = { dir, t: 0 };
+  return true;
+}
+
+/**
+ * Human poke check: succeeds when the puck is within reach in front of the goalie. A miss leaves the
+ * goalie committed for pokeTime. Returns 'poked' | 'missed' | 'busy'.
+ */
+export function tryPoke(g: Goalie, puck: { x: number; z: number }, cfg: ShootoutConfig = DEFAULT_SHOOTOUT): 'poked' | 'missed' | 'busy' {
+  if (!goalieFree(g)) return 'busy';
+  const c = cfg.goalie;
+  const gz = cfg.netZ - c.depth;
+  const dz = gz - puck.z;
+  const reach = dz >= -0.2 && Math.hypot(puck.x - g.x, dz) <= c.pokeReach;
+  if (reach) return 'poked';
+  g.poke = c.pokeTime;
+  return 'missed';
+}
+
+/** What a human goalie covers right now: sprawled wide (but low) while diving or down, normal otherwise. */
+export function goalieCover(g: Goalie, cfg: ShootoutConfig = DEFAULT_SHOOTOUT): GoalieCover {
+  const c = cfg.goalie;
+  if (g.dive || g.down > 0) {
+    // sprawled: pads and arms stretch wider, but nothing covers the top of the net
+    return { padsHalf: c.padsHalf + c.diveExtraHalf, padsH: c.padsH, armsHalf: c.armsHalf + c.diveExtraHalf, armsH: c.armsH * 0.8, bodyHalf: 0, height: 0 };
+  }
+  if (g.poke > 0) {
+    // lunging forward with the stick: narrower than a set goalie
+    return { padsHalf: c.padsHalf * 0.75, padsH: c.padsH, armsHalf: c.armsHalf * 0.7, armsH: c.armsH, bodyHalf: c.bodyHalf * 0.8, height: c.height };
+  }
+  return c;
 }
 
 /** Chance per second that the goalie pokes the puck away when the shooter is inside the poke zone. */

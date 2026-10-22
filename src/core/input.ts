@@ -65,6 +65,7 @@ export class Controls {
   private joyOrigin = { x: 0, y: 0 };
   private touchAxis = { x: 0, y: 0 };
   private container?: Phaser.GameObjects.Container;
+  private buttonObjs: (Phaser.GameObjects.Arc | Phaser.GameObjects.Text)[] = [];
   private destroyed = false;
 
   constructor(private scene: Phaser.Scene, readonly slot: 0 | 1, private opts: ControlsOptions = {}) {
@@ -121,6 +122,14 @@ export class Controls {
   setTouchButton(b: Button, isDown: boolean): void { this.touchDown[b] = isDown; }
 
   setVisible(v: boolean): void { this.container?.setVisible(v); }
+  /** Show or hide just the on-screen buttons (the joystick stays). Hidden buttons do not take presses. */
+  setButtonsVisible(v: boolean): void {
+    for (const o of this.buttonObjs) {
+      o.setVisible(v);
+      if (o.input) o.input.enabled = v;
+    }
+    if (!v) for (const b of ['a', 'b', 'c', 'd'] as Button[]) this.touchDown[b] = false;
+  }
 
   private buildTouch(): void {
     const scene = this.scene;
@@ -153,6 +162,7 @@ export class Controls {
       circle.on('pointerout', up);
       circle.on('pointerupoutside', up);
       c.add([ring, circle, txt]);
+      this.buttonObjs.push(ring, circle, txt);
     });
     if (!this.opts.noJoystick) {
       const baseX = 190;
