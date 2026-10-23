@@ -97,8 +97,8 @@ await run({ width: 1920, height: 1080 }, 'landscape', false);
 await run({ width: 1080, height: 1920 }, 'portrait', true);
 
 // ---- 3 on 3 and 3 on 3 all-time QB ----
-async function runFormat(viewport, label, football) {
-  const page = await browser.newPage({ viewport, hasTouch: false });
+async function runFormat(viewport, label, football, hasTouch = false) {
+  const page = await browser.newPage({ viewport, hasTouch });
   page.on('pageerror', (e) => errors.push(`${label}: ${e.message}`));
   page.on('console', (m) => { if (m.type() === 'error' && !/logo|404/.test(m.text())) errors.push(`${label} console: ${m.text()}`); });
   await page.goto(base);
@@ -122,18 +122,34 @@ async function runFormat(viewport, label, football) {
   await step(30);
   let st = await info();
   console.log(label, JSON.stringify(st));
-  const expectN = football.format === '3v3qb' ? 7 : 6;
+  const expectN = football.size * 2 + (football.allTime ? 1 : 0);
   if (st.n !== expectN) { console.log(`EXPECTED ${expectN} ATHLETES`); failed = true; }
-  if (football.format === '3v3qb' && (!st.allTime || st.controlled !== football.qb || st.qbTeam !== st.offense)) { console.log('ALL-TIME QB NOT SET UP'); failed = true; }
+  if (football.allTime && (!st.allTime || st.controlled !== football.qb || st.qbTeam !== st.offense)) { console.log('ALL-TIME QB NOT SET UP'); failed = true; }
+  const recv = football.allTime ? football.size : football.size - 1;
+  const plays = await page.evaluate(() => { const s = window.__game.scene.getScene('FootballScene'); return { n: s.plays.length, shown: s.playButtons.filter((b) => b.bg.visible).length, idx: s.playIdx, routes: s.athletes.filter((a) => a.route.length).map((a) => a.routeName) }; });
+  console.log(label, 'plays', JSON.stringify(plays));
+  if (recv > 0 && (plays.n !== 4 || plays.shown !== 4)) { console.log('PLAY STRIP MISSING'); failed = true; }
+  if (recv === 0 && plays.shown !== 0) { console.log('PLAY STRIP SHOWN WITH NO RECEIVERS'); failed = true; }
+  if (recv > 0) {
+    // call play 3 by key and check the routes follow it
+    await page.keyboard.press('3'); await step(2);
+    const after = await page.evaluate(() => { const s = window.__game.scene.getScene('FootballScene'); return { idx: s.playIdx, routes: s.athletes.filter((a) => a.route.length).map((a) => a.routeName), want: s.plays[2].routes }; });
+    console.log(label, 'called play 3', JSON.stringify(after));
+    if (after.idx !== 2 || after.routes.join() !== after.want.join()) { console.log('PLAY CALL DID NOT SET ROUTES'); failed = true; }
+  }
   await page.screenshot({ path: `smoke-output/football-${label}-presnap.png` });
-  // hike with F and throw with a hold on F (keyboard goes to the open receiver)
-  await page.keyboard.down('f'); await step(2); await page.keyboard.up('f');
+  // hike (tap on touch, F on keyboard) and throw with a hold on F (keyboard goes to the open receiver)
+  const W = viewport.width, H = viewport.height;
+  if (hasTouch) await page.touchscreen.tap(W * 0.55, H * 0.5); else { await page.keyboard.down('f'); await step(2); await page.keyboard.up('f'); }
   await step(25);
+  st = await info();
+  if (st.phase !== 'live') { console.log('HIKE FAILED'); failed = true; }
   await page.keyboard.down('f'); await step(30); await page.keyboard.up('f');
   await step(3);
   st = await info();
   console.log(label, 'after throw', JSON.stringify({ phase: st.phase, passUsed: st.passUsed, holder: st.holder }));
-  if (!st.passUsed) { console.log('KEYBOARD THROW FAILED'); failed = true; }
+  if (recv > 0 && !st.passUsed) { console.log('KEYBOARD THROW FAILED'); failed = true; }
+  if (recv === 0 && st.passUsed) { console.log('THREW WITH NO RECEIVER'); failed = true; }
   await step(25);
   await page.screenshot({ path: `smoke-output/football-${label}-pass.png` });
   // play on (hike, hold F to throw) until the other team has the ball; with an all-time QB the person should still be the QB
@@ -141,15 +157,17 @@ async function runFormat(viewport, label, football) {
     await step(5); st = await info();
     if (st.phase === 'pre' && st.offense === 1) break;
     if (st.phase === 'pre' && st.offense === 0) { await page.keyboard.down('f'); await step(2); await page.keyboard.up('f'); await step(20); }
-    else if (st.phase === 'live' && !st.passUsed && st.holder) { await page.keyboard.down('f'); await step(30); await page.keyboard.up('f'); }
+    else if (st.phase === 'live' && !st.passUsed && st.holder) { await page.keyboard.down('f'); await step(30); await page.keyboard.up('f'); await page.keyboard.down('w'); await step(20); await page.keyboard.up('w'); }
   }
   console.log(label, 'other team possession', JSON.stringify({ phase: st.phase, offense: st.offense, qbTeam: st.qbTeam, controlled: st.controlled, ids: st.ids }));
   if (st.phase === 'pre' && st.offense === 1) {
-    if (football.format === '3v3qb') {
+    if (football.allTime) {
       if (st.qbTeam !== 1 || st.controlled !== football.qb) { console.log('ALL-TIME QB DID NOT SWITCH TEAMS'); failed = true; }
-      // the person hikes and throws for the CPU team too
-      await page.keyboard.down('f'); await step(2); await page.keyboard.up('f');
+      // the person hikes (a tap on touch: this is where the game used to lock up) and throws for the CPU team too
+      if (hasTouch) await page.touchscreen.tap(W * 0.55, H * 0.5); else { await page.keyboard.down('f'); await step(2); await page.keyboard.up('f'); }
       await step(25);
+      st = await info();
+      if (st.phase !== 'live') { console.log('COULD NOT HIKE FOR TEAM 1 (THE LOCK-UP)'); failed = true; }
       await page.keyboard.down('f'); await step(30); await page.keyboard.up('f');
       await step(3);
       st = await info();
@@ -161,8 +179,9 @@ async function runFormat(viewport, label, football) {
   } else { console.log('NEVER REACHED THE OTHER TEAM POSSESSION'); failed = true; }
   await page.close();
 }
-await runFormat({ width: 1920, height: 1080 }, '3v3', { format: '3v3', rosters: [['will', 'bryan', 'dan'], ['vinnie', 'ben', 'jimmy']], qb: 'billy' });
-await runFormat({ width: 1080, height: 1920 }, '3v3qb', { format: '3v3qb', rosters: [['will', 'bryan', 'dan'], ['vinnie', 'ben', 'jimmy']], qb: 'billy' });
+await runFormat({ width: 1920, height: 1080 }, '1v1', { size: 1, allTime: false, rosters: [['will'], ['vinnie']], qb: 'billy' });
+await runFormat({ width: 1920, height: 1080 }, '1v1qb', { size: 1, allTime: true, rosters: [['will'], ['vinnie']], qb: 'billy' });
+await runFormat({ width: 1080, height: 1920 }, '2v2qb', { size: 2, allTime: true, rosters: [['will', 'bryan'], ['vinnie', 'ben']], qb: 'billy' }, true);
 await browser.close();
 if (errors.length) { console.log('ERRORS:\n' + errors.join('\n')); process.exit(1); }
 if (failed) process.exit(1);

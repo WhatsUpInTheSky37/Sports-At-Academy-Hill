@@ -1,7 +1,7 @@
 import Phaser from 'phaser';
 import { DIFFICULTIES, GAME_H, GAME_W, GAMES, THEME, isPortrait, type Difficulty, type GameId, type Mode } from '../core/constants';
 import { CHARACTER_IDS, CHARACTERS, displayName, type CharacterId } from '../core/characters';
-import { FOOTBALL_FORMATS, formatLabel, hasAllTimeQb, normalizeSetup, teamSize, type FootballFormat } from '../games/football/teams';
+import { TEAM_SIZES, normalizeSetup, type TeamSize } from '../games/football/teams';
 import { Storage } from '../core/storage';
 import { makeButton, displayStyle, textStyle, makeIconButton, makePanel } from '../core/ui';
 import { buildMatch } from '../core/match';
@@ -20,8 +20,9 @@ export class SetupScene extends Phaser.Scene {
   private p1!: CharacterId;
   private p2!: CharacterId;
   private setup!: SetupData;
-  // football: format and the rosters being picked (captain first)
-  private fmt: FootballFormat = '2v2';
+  // football: team size, all-time QB, and the rosters being picked (captain first)
+  private size: TeamSize = 2;
+  private allTime = false;
   private teams: [CharacterId[], CharacterId[]] = [[], []];
   private qb: CharacterId | null = null;
   private dynamic: Phaser.GameObjects.GameObject[] = [];
@@ -38,7 +39,8 @@ export class SetupScene extends Phaser.Scene {
     this.difficulty = s.difficulty;
     this.p1 = s.p1;
     this.p2 = s.p2 === s.p1 ? (s.p1 === 'vinnie' ? 'will' : 'vinnie') : s.p2;
-    this.fmt = FOOTBALL_FORMATS.includes(s.footballFormat) ? s.footballFormat : '2v2';
+    this.size = TEAM_SIZES.includes(s.footballSize) ? s.footballSize : 2;
+    this.allTime = !!s.footballAllTime;
     this.teams = [[...(s.footballTeams?.[0] ?? [])], [...(s.footballTeams?.[1] ?? [])]];
     this.qb = s.footballQb ?? null;
     const W = GAME_W;
@@ -81,15 +83,20 @@ export class SetupScene extends Phaser.Scene {
     }
     const football = this.setup.gameId === 'football' && !this.setup.championship;
     if (football) {
-      // format row: 2 on 2 / 3 on 3 / 3 on 3 with an all-time QB (1 player only)
+      // format row: 1 on 1 / 2 on 2
       y += 160;
       add(makePanel(this, leftX, y + 70, colW, 140));
       add(this.add.text(leftX, y + 12, 'FORMAT', displayStyle(24, '#f5c518', { strokeThickness: 0 })).setOrigin(0.5, 0));
-      if (this.mode === 'local' && this.fmt === '3v3qb') this.fmt = '3v3';
-      FOOTBALL_FORMATS.forEach((f, i) => {
-        const locked = f === '3v3qb' && this.mode === 'local';
-        const label = locked ? 'ALL-TIME QB\n(1 PLAYER ONLY)' : formatLabel(f).replace(' ALL-TIME QB', '\nALL-TIME QB');
-        add(makeButton(this, leftX + (i - 1) * (colW / 3), y + 85, label, () => { if (locked) return; this.fmt = f; this.render(); }, { width: colW / 3 - 30, height: 80, fontSize: locked ? 18 : 22, ...sel(this.fmt === f), ...(locked ? { color: 0x3a3a3a, textColor: '#9a9a9a' } : {}) }));
+      TEAM_SIZES.forEach((n, i) => {
+        add(makeButton(this, leftX + (i === 0 ? -colW / 4 : colW / 4), y + 85, `${n} ON ${n}`, () => { this.size = n; this.render(); }, { width: colW / 2 - 40, height: 80, fontSize: 26, ...sel(this.size === n) }));
+      });
+      // all-time QB row (1 player only: the CPU runs both defences)
+      y += 160;
+      const locked = this.mode === 'local';
+      add(makePanel(this, leftX, y + 70, colW, 140, { color: locked ? 0x4a2a10 : THEME.panel }));
+      add(this.add.text(leftX, y + 12, locked ? 'ALL-TIME QB (1 PLAYER ONLY)' : 'ALL-TIME QB: one kid throws for both teams', displayStyle(22, '#f5c518', { strokeThickness: 0 })).setOrigin(0.5, 0));
+      [false, true].forEach((v, i) => {
+        add(makeButton(this, leftX + (i === 0 ? -colW / 4 : colW / 4), y + 85, v ? 'ALL-TIME QB ON' : 'OFF', () => { if (locked) return; this.allTime = v; this.render(); }, { width: colW / 2 - 40, height: 80, fontSize: 26, ...sel(!locked && this.allTime === v), ...(locked ? { color: 0x3a3a3a, textColor: '#9a9a9a' } : {}) }));
       });
     }
     // Characters block
@@ -128,8 +135,8 @@ export class SetupScene extends Phaser.Scene {
 
   /** Football: pick each team's kids (captain first) and, with an all-time QB, who throws for both. */
   private renderTeams(add: <T extends Phaser.GameObjects.GameObject>(o: T) => T, cx: number, cy: number, cw: number, ch: number): void {
-    const size = teamSize(this.fmt);
-    const qbMode = hasAllTimeQb(this.fmt) && this.mode === 'single';
+    const size = this.size;
+    const qbMode = this.allTime && this.mode === 'single';
     const cols = qbMode ? 3 : 2;
     const colW = cw / cols;
     add(this.add.text(cx, cy + 12, 'PICK THE TEAMS', displayStyle(24, '#f5c518', { strokeThickness: 0 })).setOrigin(0.5, 0));
@@ -209,9 +216,8 @@ export class SetupScene extends Phaser.Scene {
       return;
     }
     if (this.setup.gameId === 'football') {
-      const fmt = this.mode === 'local' && this.fmt === '3v3qb' ? '3v3' : this.fmt;
-      const fs = normalizeSetup(fmt, this.teams, this.qb);
-      Storage.updateSettings({ footballFormat: this.fmt, footballTeams: fs.rosters, footballQb: fs.qb, p1: fs.rosters[0][0], p2: fs.rosters[1][0] });
+      const fs = normalizeSetup(this.size, this.allTime && this.mode === 'single', this.teams, this.qb);
+      Storage.updateSettings({ footballSize: this.size, footballAllTime: this.allTime, footballTeams: fs.rosters, footballQb: fs.qb, p1: fs.rosters[0][0], p2: fs.rosters[1][0] });
       const match = buildMatch('football', { mode: this.mode, difficulty: this.difficulty, p1: fs.rosters[0][0], p2: fs.rosters[1][0], football: fs });
       this.scene.start(GAMES.football.sceneKey, { match });
       return;

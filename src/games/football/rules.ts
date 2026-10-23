@@ -36,6 +36,8 @@ export interface FootballConfig {
   interceptRadius: number;
   /** Backyard rule: the rusher counts this many seconds ("Mississippi") before crossing the line. */
   rushCount: number;
+  /** All-time QB: nobody rushes, so the QB has this many seconds to throw before the play is dead. */
+  qbClock: number;
 }
 
 export const FOOTBALL_CONFIG: FootballConfig = {
@@ -57,6 +59,7 @@ export const FOOTBALL_CONFIG: FootballConfig = {
   catchRadius: 1.8,
   interceptRadius: 1.1,
   rushCount: 2.5,
+  qbClock: 6,
 };
 
 export type Team = 0 | 1;
@@ -78,7 +81,7 @@ export interface FootballState {
 export type PlayOutcome =
   | { type: 'tackled'; spot: number }
   | { type: 'outOfBounds'; spot: number }
-  | { type: 'incomplete' }
+  | { type: 'incomplete'; label?: string }
   | { type: 'touchdown' }
   | { type: 'safety' };
 
@@ -186,10 +189,11 @@ export function endPlay(state: FootballState, outcome: PlayOutcome, cfg: Footbal
         // cannot happen (no pass on a return) but be safe: just resume at the line
         return { ...s, returning: false, down: 1, lastEvent: 'Play over.' };
       }
+      const label = outcome.label ?? 'Incomplete';
       if (s.down >= cfg.downs) {
-        return { ...s, offense: def, down: 1, lineOfScrimmage: clampSpot(s.lineOfScrimmage, cfg), returning: false, lastEvent: 'Incomplete. Turnover on downs!' };
+        return { ...s, offense: def, down: 1, lineOfScrimmage: clampSpot(s.lineOfScrimmage, cfg), returning: false, lastEvent: `${label}. Turnover on downs!` };
       }
-      return { ...s, down: s.down + 1, lastEvent: 'Incomplete pass.' };
+      return { ...s, down: s.down + 1, lastEvent: outcome.label ? `${label}.` : 'Incomplete pass.' };
     }
     case 'tackled':
     case 'outOfBounds': {

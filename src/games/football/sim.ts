@@ -108,3 +108,23 @@ export function routeWaypoints(name: RouteName, start: Vec, dir: 1 | -1, cfg: Fo
     case 'drag': return [{ x: start.x, y: y(2) }, { x: cl(start.x - side * 10), y: y(3) }, { x: cl(start.x - side * 10), y: y(12) }];
   }
 }
+
+/** A called play: one route per receiver. */
+export interface PlayCall { name: string; routes: RouteName[]; }
+
+export const ROUTES: RouteName[] = ['go', 'slant', 'out', 'curl', 'post', 'drag'];
+
+/** A menu of up to four plays for `receivers` receivers (distinct routes within a play). */
+export function playMenu(receivers: number, rand: () => number = Math.random, count = 4): PlayCall[] {
+  if (receivers <= 0) return [];
+  const shuffled = [...ROUTES];
+  for (let i = shuffled.length - 1; i > 0; i--) { const j = Math.floor(rand() * (i + 1)); [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]]; }
+  if (receivers === 1) return shuffled.slice(0, count).map((r) => ({ name: r.toUpperCase(), routes: [r] }));
+  const plays: PlayCall[] = [];
+  for (let i = 0; i < shuffled.length && plays.length < count; i++) {
+    const a = shuffled[i], b = shuffled[(i + 1 + Math.floor(rand() * (shuffled.length - 1))) % shuffled.length];
+    const routes = [a, b === a ? shuffled[(i + 1) % shuffled.length] : b];
+    plays.push({ name: routes.map((r) => r.toUpperCase()).join(' + '), routes });
+  }
+  return plays;
+}

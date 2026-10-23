@@ -13,10 +13,10 @@ for (const [label, viewport] of [['landscape', { width: 1920, height: 1080 }], [
   const open = (key, data) => page.evaluate(([key, data]) => { const g = window.__game; g.scene.getScenes(false).filter((s) => s.scene.isActive() || s.scene.isPaused()).forEach((s) => g.scene.stop(s.scene.key)); g.scene.start(key, data); }, [key, data]);
   await open('SetupScene', { gameId: 'football' });
   await page.waitForTimeout(600);
-  await page.evaluate(() => { const s = window.__game.scene.getScene('SetupScene'); s.fmt = '3v3'; s.teams = [['will', 'dan'], ['jimmy']]; s.render(); });
+  await page.evaluate(() => { const s = window.__game.scene.getScene('SetupScene'); s.size = 2; s.allTime = false; s.teams = [['will', 'dan'], ['jimmy']]; s.render(); });
   await page.waitForTimeout(300);
-  await page.screenshot({ path: `smoke-output/setup-${label}-football-3v3.png` });
-  await page.evaluate(() => { const s = window.__game.scene.getScene('SetupScene'); s.fmt = '3v3qb'; s.teams = [['will', 'dan', 'bryan'], ['jimmy', 'vinnie', 'ben']]; s.qb = 'billy'; s.render(); });
+  await page.screenshot({ path: `smoke-output/setup-${label}-football-2v2.png` });
+  await page.evaluate(() => { const s = window.__game.scene.getScene('SetupScene'); s.size = 2; s.allTime = true; s.teams = [['will', 'dan'], ['jimmy', 'vinnie']]; s.qb = 'billy'; s.render(); });
   await page.waitForTimeout(300);
   await page.screenshot({ path: `smoke-output/setup-${label}-football-qb.png` });
   await open('SetupScene', { gameId: 'derby' });
