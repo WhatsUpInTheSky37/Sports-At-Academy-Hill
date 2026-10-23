@@ -26,26 +26,30 @@ await page.evaluate(() => { const g = window.__game; g.loop.stop(); window.__sim
 const step = (n) => page.evaluate((n) => { const g = window.__game; for (let i = 0; i < n; i++) { window.__simT += 16.67; g.step(window.__simT, 16.67); } }, n);
 const info = () => page.evaluate(() => {
   const s = window.__game.scene.getScene('FootballScene');
-  return { allTime: s.allTime, phase: s.phase, offense: s.state.offense, down: s.state.down, los: +s.state.lineOfScrimmage.toFixed(1), passUsed: s.passUsed, holder: s.holder ? s.holder.character.id : null, playT: +s.playT.toFixed(1), scores: [...s.state.scores], ev: s.state.lastEvent, finished: s.finished, off: s.athletes.filter((a) => Math.abs(a.x) > 13 || a.y < -11 || a.y > 51).map((a) => a.character.id) };
+  return { allTime: s.allTime, kick: s.kick ? s.kick.kind + ':' + s.kick.stage + ':' + s.kick.team : null, phase: s.phase, offense: s.state.offense, down: s.state.down, los: +s.state.lineOfScrimmage.toFixed(1), passUsed: s.passUsed, holder: s.holder ? s.holder.character.id : null, playT: +s.playT.toFixed(1), scores: [...s.state.scores], ev: s.state.lastEvent, finished: s.finished, off: s.athletes.filter((a) => Math.abs(a.x) > 13 || a.y < -11 || a.y > 51).map((a) => a.character.id) };
 });
-let last = null, same = 0, plays = 0, possessions = new Set();
+let last = null, same = 0, plays = 0, possessions = new Set(), kicks = new Set(), pats = 0;
 const keys = ['w', 'a', 's', 'd'];
 for (let f = 0; f < frames; f += 10) {
   await step(10);
   const st = await info();
   possessions.add(st.offense);
   if (st.off.length) console.log('OFF FIELD', st.off, JSON.stringify(st));
-  const key = JSON.stringify([st.phase, st.offense, st.down, st.los, st.passUsed, st.holder]);
+  const key = JSON.stringify([st.phase, st.offense, st.down, st.los, st.passUsed, st.holder, st.kick]);
+  if (st.kick) kicks.add(st.kick.split(':')[0]);
   if (key === last) same++; else { same = 0; last = key; }
   const mine = st.offense === 0 || st.allTime;
-  if (st.phase === 'pre' && mine) { await page.keyboard.press(String(1 + Math.floor(Math.random() * 4))); await step(2); await page.keyboard.down('f'); await step(2); await page.keyboard.up('f'); plays++; }
+  if (st.phase === 'pat') { if (st.kick.endsWith(':ready:0')) { await page.keyboard.down('f'); await step(2); await page.keyboard.up('f'); pats++; } }
+  else if (st.phase === 'kickoff') { if (st.kick.endsWith(':ready:0')) { await page.keyboard.down('f'); await step(15 + Math.floor(Math.random() * 20)); await page.keyboard.up('f'); } else { const k = keys[Math.floor(Math.random() * keys.length)]; await page.keyboard.down(k); await step(6); await page.keyboard.up(k); } }
+  else if (st.phase === 'pre' && mine) { await page.keyboard.press(String(1 + Math.floor(Math.random() * 4))); await step(2); await page.keyboard.down('f'); await step(2); await page.keyboard.up('f'); plays++; }
   else if (st.phase === 'live' && mine && !st.passUsed && st.holder && st.playT > 0.5) { await page.keyboard.down('f'); await step(25); await page.keyboard.up('f'); }
   else if (st.phase === 'live') { const k = keys[Math.floor(Math.random() * keys.length)]; await page.keyboard.down(k); await step(6); await page.keyboard.up(k); }
   if (same > 60) { console.log('STUCK', JSON.stringify(st)); break; }
   if (st.finished) { console.log('match finished', JSON.stringify(st)); break; }
 }
 const st = await info();
-console.log('end', JSON.stringify(st), 'plays', plays, 'possessions seen', [...possessions]);
+console.log('end', JSON.stringify(st), 'plays', plays, 'pats kicked', pats, 'kick phases seen', [...kicks], 'possessions seen', [...possessions]);
+if (!kicks.has('kickoff')) { console.log('NO KICKOFF SEEN'); process.exitCode = 1; }
 if (errors.length) console.log('ERRORS:\n' + errors.join('\n'));
 await browser.close();
 process.exit(errors.length || same > 60 ? 1 : 0);

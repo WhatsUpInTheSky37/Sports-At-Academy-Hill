@@ -12,8 +12,8 @@ import { QUALITY } from '../../core/quality';
 import { createCanvas, paintHaze, paintLawnHD, paintPineHD, paintSkyHD, paintTreeHD, paintVignette, rng } from '../../art/environment';
 import { paintFenceHD, paintHouseHD } from './art';
 import {
-  FOOTBALL_CONFIG, attackDir, canForwardPass, clampX, createFootball, crossedGoal, describeYard, endPlay, interception,
-  ordinal, other, outOfBoundsX, yardsToGoal, type FootballState, type Team,
+  FOOTBALL_CONFIG, attackDir, canForwardPass, clampX, createFootball, crossedGoal, describeYard, endPlay, goalLine, interception,
+  kickDistance, kickoffReturn, ordinal, other, outOfBoundsX, ownYardLine, patGood, pointAfter, touchback, yardsToGoal, type FootballState, type Team,
 } from './rules';
 import { canCatch, dist, isTouch, leadPoint, makePass, moveByInput, moveToward, passPosition, playMenu, routeWaypoints, type PassFlight, type PlayCall, type RouteName, type Vec } from './sim';
 
@@ -60,7 +60,24 @@ interface Athlete {
 
 interface Gesture { id: number; x0: number; y0: number; t0: number; x: number; y: number; moved: boolean; }
 
-type Phase = 'pre' | 'live' | 'dead' | 'done';
+type Phase = 'pre' | 'live' | 'dead' | 'done' | 'pat' | 'kickoff';
+
+/** A kick in progress: the point after a touchdown, or a kickoff. */
+interface Kick {
+  kind: 'pat' | 'kickoff';
+  team: Team;
+  stage: 'ready' | 'fly' | 'loose' | 'done';
+  t: number;
+  /** Accuracy marker (point after) sweeping 0..1. */
+  marker: number;
+  charging: boolean;
+  chargeT: number;
+  kicker: Athlete;
+  /** Seconds the ball has been loose on the ground after a kickoff. */
+  looseT: number;
+  /** True once the human returner has moved the stick (otherwise they are walked to the ball). */
+  returnerMoved: boolean;
+}
 
 /** Polyline strokes for the yard numbers, in a 1 x 1 box (x right, y down = toward the camera). */
 const DIGITS: Record<string, [number, number][][]> = {
@@ -125,6 +142,9 @@ export class FootballScene extends BaseGameScene {
   private prompt!: Phaser.GameObjects.Text;
   private fieldTop = 0;
   private fieldBottom = 0;
+  private kick: Kick | null = null;
+  private kickG!: Phaser.GameObjects.Graphics;
+  private meterRect = new Phaser.Geom.Rectangle(0, 0, 100, 24);
   private sideSwitch = 1;
   private noticeT = 0;
 
@@ -132,7 +152,7 @@ export class FootballScene extends BaseGameScene {
     this.setupShell({ music: 'outdoor' });
     // the scene instance is reused on rematch: reset everything create() does not assign
     this.phase = 'pre'; this.holder = null; this.pass = null; this.passTarget = null; this.controlled = [null, null]; this.ctrl = [null, null];
-    this.charging = false; this.gesture = null; this.sideSwitch = 1; this.noticeT = 0;
+    this.charging = false; this.gesture = null; this.sideSwitch = 1; this.noticeT = 0; this.kick = null;
     const W = this.W, H = this.H, P = this.portrait;
     this.fieldTop = this.hudBottom - 30;
     this.fieldBottom = P ? H - 300 : H - 150;
@@ -163,7 +183,8 @@ export class FootballScene extends BaseGameScene {
     this.input.on('pointerup', (p: Phaser.Input.Pointer) => this.onPointerUp(p));
     this.input.on('pointerupoutside', (p: Phaser.Input.Pointer) => this.onPointerUp(p));
     this.refreshHud();
-    this.beginAfterHowTo(() => this.setupFormation());
+    // the game starts with a kickoff: the second team kicks to the first
+    this.beginAfterHowTo(() => this.startKickoff(1));
   }
 
   // ---------- Setup ----------
@@ -285,6 +306,8 @@ export class FootballScene extends BaseGameScene {
     this.meterLabel = this.add.text(W / 2 - mw / 2, my - 34, 'THROW POWER', displayStyle(20, '#f5c518', { strokeThickness: 0 })).setOrigin(0, 0).setDepth(901);
     this.meter = new Meter(this, W / 2 - mw / 2, my - 4, mw, 24, { depth: 901, bg: 0x2a2a2a, fg: 0xf5c518 });
     this.meter.set(0);
+    this.meterRect = new Phaser.Geom.Rectangle(W / 2 - mw / 2, my - 4, mw, 24);
+    this.kickG = this.add.graphics().setDepth(902);
     this.prompt = this.add.text(W / 2, my + 30, '', textStyle(20, '#fff3c4')).setOrigin(0.5).setDepth(901);
     // play-call strip above the panel: up to four plays, tap (or press 1-4) to call one
     this.playButtons = [];
@@ -393,6 +416,7 @@ export class FootballScene extends BaseGameScene {
     if (this.finished) return;
     const s = this.state;
     this.phase = 'pre';
+    this.kick = null;
     this.preT = 0;
     this.dir = attackDir(s.offense);
     const L = s.lineOfScrimmage;
@@ -512,6 +536,268 @@ export class FootballScene extends BaseGameScene {
     this.throwPassTo(qb, lp, power);
   }
 
+  // ---------- Kicks: point after and kickoffs ----------
+  /** The all-time QB sits out kicks on the sideline. */
+  private benchQb(): void {
+    if (this.qbAthlete) this.place(this.qbAthlete, -this.cfg.width / 2 + 1, this.cfg.fieldLength / 2);
+  }
+
+  private humanControls(a: Athlete): boolean { return this.controlled.some((c) => c === a); }
+
+  /** Who kicks / returns for a team: the captain. */
+  private captain(team: Team): Athlete { return this.teamPlayers(team)[0]; }
+
+  private startPat(team: Team): void {
+    if (this.finished) return;
+    const d = attackDir(team);
+    const gl = goalLine(team, this.cfg);
+    const spot = { x: 0, y: gl - this.cfg.patYard * d };
+    this.phase = 'pat';
+    this.dir = d;
+    this.holder = null; this.pass = null; this.passTarget = null; this.passUsed = true;
+    this.charging = false; this.gesture = null;
+    this.ball = { x: spot.x, y: spot.y, z: 0.15 };
+    const kicker = this.captain(team);
+    this.place(kicker, -0.9 * d, spot.y - 2.4 * d);
+    this.teamPlayers(team).slice(1).forEach((a, i) => this.place(a, 1.2 + i * 1.5, spot.y - 0.4 * d));
+    this.teamPlayers(other(team)).forEach((a, i) => this.place(a, (i === 0 ? -4 : 4), gl - 6.5 * d));
+    this.benchQb();
+    for (const a of this.athletes) { a.away = a.team === team; a.flip = 1; a.vx = 0; a.vy = 0; }
+    for (const slot of [0, 1] as const) this.controlled[slot] = !this.isAI(slot) && (slot as Team) === team ? kicker : null;
+    this.kick = { kind: 'pat', team, stage: 'ready', t: 0, marker: 0, charging: false, chargeT: 0, kicker, looseT: 0, returnerMoved: false };
+    this.camY = spot.y - 1.4 * d; this.camXw = 0;
+    this.refreshPlayStrip();
+    this.refreshHud();
+    const human = this.humanControls(kicker);
+    this.meterLabel.setText('KICK ACCURACY').setVisible(human);
+    this.meter.setVisible(human);
+    this.setStatus(human ? `${this.name(team)}: ${this.useTouch ? 'tap the field' : 'press F'} when the marker is in the green` : `${this.name(team)} lines up the point after`);
+    this.prompt.setText(`Point after: ${this.cfg.patPoints} point if it splits the uprights`);
+  }
+
+  private doPat(marker: number): void {
+    const k = this.kick;
+    if (!k || k.kind !== 'pat' || k.stage !== 'ready') return;
+    const d = attackDir(k.team);
+    const gl = goalLine(k.team, this.cfg);
+    const error = (marker - 0.5) * 2;
+    const to = { x: error * 7, y: gl + (this.cfg.endZone + 3) * d };
+    this.pass = makePass({ x: this.ball.x, y: this.ball.y }, to, this.cfg, 0.5);
+    this.pass.height = 7;
+    this.pass.duration = Math.max(1.3, this.pass.duration);
+    k.stage = 'fly'; k.t = 0;
+    k.kicker.sprite.setPose(k.kicker.away ? 'back-kick' : 'kick');
+    Audio.sfx('thud');
+    this.meter.setVisible(false); this.meterLabel.setVisible(false);
+    this.setStatus('The kick is up...');
+  }
+
+  private updatePat(dt: number): void {
+    const k = this.kick;
+    if (!k || k.kind !== 'pat') return;
+    k.t += dt;
+    for (const a of this.athletes) { a.vx = 0; a.vy = 0; }
+    if (k.stage === 'ready') {
+      k.marker = 0.5 + 0.5 * Math.sin(k.t * 4.2);
+      const human = this.humanControls(k.kicker);
+      if (human) {
+        this.meter.set(k.marker);
+        const slot = this.controlled[0] === k.kicker ? 0 : 1;
+        if (this.ctrl[slot]?.justDown('a') || k.t > this.cfg.kickAutoSeconds) this.doPat(k.t > this.cfg.kickAutoSeconds ? 0.5 + gauss(0.25) : k.marker);
+      } else if (k.t > 1.3) {
+        this.doPat(0.5 + gauss(0.24 - this.ai * 0.15));
+      }
+      return;
+    }
+    if (k.stage === 'fly' && this.pass) {
+      this.pass.t += dt;
+      this.ball = passPosition(this.pass);
+      if (this.pass.t >= this.pass.duration) {
+        const good = patGood(this.pass.to.x, this.cfg);
+        this.pass = null;
+        this.ball.z = 0;
+        k.stage = 'done';
+        this.state = pointAfter(this.state, k.team, good, this.cfg);
+        this.refreshHud();
+        if (good) {
+          Audio.sfx('cheer');
+          this.announce('GOOD!', { color: '#f5c518', size: this.portrait ? 70 : 90, y: this.fieldTop + 200, sub: `+${this.cfg.patPoints} ${this.name(k.team)}` });
+          confetti(this, this.W / 2, this.fieldTop + 200, 40);
+        } else {
+          Audio.sfx('groan');
+          this.announce('NO GOOD', { color: '#ef5350', size: this.portrait ? 60 : 76, y: this.fieldTop + 200, sub: this.pass === null && Math.abs(this.ball.x) >= this.cfg.uprightHalf ? 'wide' : '' });
+        }
+        this.setStatus(this.state.lastEvent);
+        this.time.delayedCall(FOOTBALL_VISUAL.deadBallPause, () => {
+          if (this.finished || this.kick !== k) return;
+          if (this.state.winner !== null) return this.endMatch();
+          this.startKickoff(k.team);
+        });
+      }
+    }
+  }
+
+  private startKickoff(team: Team): void {
+    if (this.finished) return;
+    const recv = other(team);
+    const d = attackDir(team);
+    const spot = { x: 0, y: ownYardLine(team, this.cfg.kickoffYard, this.cfg) };
+    this.phase = 'kickoff';
+    // the camera sits behind the person's side: the kicker when they kick, their returner when they receive
+    this.dir = !this.isAI(team) || this.isAI(recv) ? d : attackDir(recv);
+    this.holder = null; this.pass = null; this.passTarget = null; this.passUsed = true;
+    this.charging = false; this.gesture = null;
+    this.ball = { x: spot.x, y: spot.y, z: 0.15 };
+    const kicker = this.captain(team);
+    this.place(kicker, -0.9 * d, spot.y - 2.4 * d);
+    this.teamPlayers(team).slice(1).forEach((a, i) => this.place(a, (i === 0 ? 5 : -5), spot.y - 1 * d));
+    const returner = this.captain(recv);
+    this.place(returner, 0, ownYardLine(recv, 10, this.cfg));
+    this.teamPlayers(recv).slice(1).forEach((a, i) => this.place(a, (i === 0 ? 6 : -6), ownYardLine(recv, 22, this.cfg)));
+    this.benchQb();
+    for (const a of this.athletes) { a.away = a.team === team; a.flip = 1; a.vx = 0; a.vy = 0; a.route = []; }
+    for (const slot of [0, 1] as const) {
+      if (this.isAI(slot)) { this.controlled[slot] = null; continue; }
+      this.controlled[slot] = (slot as Team) === team ? kicker : returner;
+    }
+    this.kick = { kind: 'kickoff', team, stage: 'ready', t: 0, marker: 0, charging: false, chargeT: 0, kicker, looseT: 0, returnerMoved: false };
+    this.camY = (this.dir === d ? spot.y : returner.y) - 1.4 * this.dir; this.camXw = 0;
+    this.refreshPlayStrip();
+    this.refreshHud();
+    const humanK = this.humanControls(kicker), humanR = this.humanControls(returner);
+    this.meterLabel.setText('KICK POWER').setVisible(humanK);
+    this.meter.set(0);
+    this.meter.setVisible(humanK);
+    this.setStatus(humanK ? `${this.name(team)} kicks off: ${this.useTouch ? 'press-hold the field' : 'hold F'} to charge, let go to kick` : humanR ? `${this.name(team)} is kicking off to you: field it and run it back!` : `${this.name(team)} kicks off to ${this.name(recv)}`);
+    this.prompt.setText(humanR ? 'Catch the kick (or let it land and grab it) and run. Into the end zone = touchback' : 'A kick into the end zone is a touchback');
+  }
+
+  private doKickoff(power: number): void {
+    const k = this.kick;
+    if (!k || k.kind !== 'kickoff' || k.stage !== 'ready') return;
+    const d = attackDir(k.team);
+    const dist = kickDistance(power, this.cfg);
+    const to = { x: clampX(gauss(1.6), this.cfg), y: this.ball.y + dist * d };
+    to.y = Math.max(-this.cfg.endZone + 1, Math.min(this.cfg.fieldLength + this.cfg.endZone - 1, to.y));
+    this.pass = makePass({ x: this.ball.x, y: this.ball.y }, to, this.cfg, 0.3);
+    this.pass.height = 7 + dist * 0.12;
+    this.pass.duration = Math.max(1.8, dist / 13);
+    k.stage = 'fly'; k.t = 0; k.charging = false;
+    k.kicker.sprite.setPose(k.kicker.away ? 'back-kick' : 'kick');
+    Audio.sfx('thud');
+    this.meter.setVisible(false); this.meterLabel.setVisible(false);
+    this.setStatus(this.humanControls(this.captain(other(k.team))) ? 'Kick is in the air: get under it!' : 'Kick is in the air...');
+  }
+
+  /** A kickoff has been fielded (or picked up): the return is live. */
+  private fieldKick(catcher: Athlete): void {
+    const k = this.kick;
+    if (!k) return;
+    const recv = other(k.team);
+    this.kick = null;
+    this.pass = null;
+    this.holder = catcher;
+    this.state = kickoffReturn(this.state, recv);
+    this.dir = attackDir(recv);
+    this.phase = 'live';
+    this.playT = 0;
+    this.graceT = 0.4;
+    this.passUsed = true;
+    for (const slot of [0, 1] as const) if (!this.isAI(slot) && (slot as Team) === recv) this.controlled[slot] = catcher;
+    this.refreshHud();
+    Audio.sfx('catch');
+    this.setStatus(this.humanControls(catcher) ? 'Run it back!' : `${catcher.character.name} returns it`);
+    this.prompt.setText('');
+  }
+
+  private updateKickoff(dt: number): void {
+    const k = this.kick;
+    if (!k || k.kind !== 'kickoff') return;
+    k.t += dt;
+    const recv = other(k.team);
+    const returner = this.captain(recv);
+    const d = attackDir(k.team);
+    const aiSpeed = this.cfg.playerSpeed * (this.cfg.aiSpeedMin + this.ai * (this.cfg.aiSpeedMax - this.cfg.aiSpeedMin));
+    if (k.stage === 'ready') {
+      for (const a of this.athletes) { a.vx = 0; a.vy = 0; }
+      const human = this.humanControls(k.kicker);
+      if (human) {
+        const slot = this.controlled[0] === k.kicker ? 0 : 1;
+        const c = this.ctrl[slot];
+        if (!k.charging && !this.gesture && c?.justDown('a')) { k.charging = true; k.chargeT = 0; }
+        if (k.charging) {
+          k.chargeT += dt;
+          const p = Math.min(1, k.chargeT / this.cfg.kickChargeTime);
+          this.meter.set(p);
+          if (!this.gesture && c && !c.isDown('a')) this.doKickoff(p);
+        }
+        if (k.t > this.cfg.kickAutoSeconds && k.stage === 'ready') this.doKickoff(0.7);
+      } else if (k.t > 1.5) {
+        this.doKickoff(Math.max(0.25, Math.min(1, 0.4 + this.ai * 0.3 + gauss(0.12))));
+      }
+      return;
+    }
+    // the ball is in the air or loose on the ground: everyone moves
+    const landing = k.stage === 'fly' && this.pass ? this.pass.to : { x: this.ball.x, y: this.ball.y };
+    for (const a of this.athletes) {
+      if (a === this.qbAthlete) continue;
+      const slot = this.controlled[0] === a ? 0 : this.controlled[1] === a ? 1 : null;
+      if (slot !== null) {
+        const ax = this.axisFor(slot);
+        if (Math.abs(ax.x) > 0.05 || Math.abs(ax.y) > 0.05) { k.returnerMoved = k.returnerMoved || a.team === recv; moveByInput(a, ax.x, ax.y, this.cfg.playerSpeed, dt); }
+        else if (a.team === recv && !k.returnerMoved) moveToward(a, landing.x, landing.y, this.cfg.playerSpeed * 0.9, dt, 0.3); // walked under it until the person takes over
+        else { a.vx = 0; a.vy = 0; }
+      } else if (a.team === recv) {
+        // the receiving side: the returner goes to the ball, teammates set up a lane ahead of it
+        if (a === returner) moveToward(a, landing.x, landing.y, aiSpeed, dt, 0.3);
+        else moveToward(a, clampX(landing.x + (a.x >= landing.x ? 3 : -3), this.cfg), landing.y + 4 * d, aiSpeed * 0.8, dt, 0.5);
+      } else {
+        // the kicking side runs down but holds a few yards off until the ball is fielded
+        moveToward(a, clampX(landing.x + (a.x >= landing.x ? 2 : -2), this.cfg), landing.y - 5 * d, aiSpeed * 0.9, dt, 1.5);
+      }
+    }
+    if (k.stage === 'fly' && this.pass) {
+      this.pass.t += dt;
+      this.ball = passPosition(this.pass);
+      if (this.pass.t >= this.pass.duration) {
+        const to = this.pass.to;
+        this.ball = { x: to.x, y: to.y, z: 0.1 };
+        if (crossedGoal(k.team, to.y, this.cfg)) {
+          this.pass = null;
+          k.stage = 'done';
+          this.phase = 'dead';
+          this.state = touchback(this.state, recv, this.cfg);
+          this.refreshHud();
+          Audio.sfx('whistle');
+          this.announce('TOUCHBACK', { size: this.portrait ? 50 : 64, y: this.fieldTop + 180, hold: 1000, sub: `${this.name(recv)}'s ball on the ${this.cfg.touchbackYard}` });
+          this.setStatus(this.state.lastEvent);
+          this.time.delayedCall(FOOTBALL_VISUAL.deadBallPause, () => { if (!this.finished && this.phase === 'dead') this.setupFormation(); });
+          return;
+        }
+        const near = this.teamPlayers(recv).filter((a) => dist(a, to) <= 2.2).sort((a, b) => dist(a, to) - dist(b, to))[0];
+        if (near) { this.fieldKick(near); return; }
+        this.pass = null;
+        k.stage = 'loose'; k.looseT = 0;
+        Audio.sfx('bounce');
+        this.setStatus(this.humanControls(returner) ? 'Loose ball! Grab it!' : 'The kick bounces loose');
+      }
+      return;
+    }
+    if (k.stage === 'loose') {
+      k.looseT += dt;
+      const grab = this.teamPlayers(recv).find((a) => dist(a, this.ball) <= 1.2);
+      if (grab) { this.fieldKick(grab); return; }
+      if (k.looseT >= this.cfg.looseSeconds) {
+        // nobody wanted it: downed where it lies
+        this.kick = null;
+        this.state = kickoffReturn(this.state, recv);
+        this.dir = attackDir(recv);
+        this.phase = 'live';
+        this.endPlayWith({ type: 'tackled', spot: this.ball.y, label: 'Kick downed' });
+      }
+    }
+  }
+
   private endPlayWith(outcome: Parameters<typeof endPlay>[1]): void {
     if (this.phase !== 'live') return;
     this.phase = 'dead';
@@ -540,8 +826,11 @@ export class FootballScene extends BaseGameScene {
       if (this.state.offense !== prevOffense && !this.state.returning) Audio.sfx('groan');
     }
     this.refreshHud();
+    const tdTeam: Team | null = scored && ev === 'TOUCHDOWN!' ? (this.state.scores[0] !== prevScores[0] ? 0 : 1) : null;
     this.time.delayedCall(FOOTBALL_VISUAL.deadBallPause, () => {
+      if (this.finished || this.phase !== 'dead') return;
       if (this.state.winner !== null) return this.endMatch();
+      if (tdTeam !== null) return this.startPat(tdTeam);
       this.setupFormation();
     });
   }
@@ -562,6 +851,9 @@ export class FootballScene extends BaseGameScene {
     this.setScore(0, String(s.scores[0]));
     this.setScore(1, String(s.scores[1]));
     this.setTurn(s.offense);
+    const k = this.kick;
+    if (k && k.kind === 'pat') { this.setTurn(k.team); this.setSub(`POINT AFTER  •  ${this.name(k.team).toUpperCase()} KICKS`); return; }
+    if (k && k.kind === 'kickoff') { this.setTurn(other(k.team)); this.setSub(`KICKOFF  •  ${this.name(k.team).toUpperCase()} KICKS TO ${this.name(other(k.team)).toUpperCase()}`); return; }
     const ytg = Math.round(yardsToGoal(s.offense, s.lineOfScrimmage, this.cfg));
     const downTxt = s.returning ? 'RETURN' : `${ordinal(s.down)} DOWN / ${this.cfg.downs}`;
     this.setSub(`${this.name(s.offense).toUpperCase()} BALL  •  ${downTxt}  •  ${describeYard(s.offense, s.lineOfScrimmage, this.cfg)}  •  ${ytg} to go`);
@@ -579,6 +871,7 @@ export class FootballScene extends BaseGameScene {
   /** The human slot whose turn the pointer belongs to: the offence's human if any, else the defence's. */
   private pointerSlot(): 0 | 1 | null {
     if (this.allTime) return 0;
+    if (this.kick) { const t = this.kick.kind === 'kickoff' && this.kick.stage !== 'ready' ? other(this.kick.team) : this.kick.team; if (!this.isAI(t)) return t as 0 | 1; return this.isAI(other(t)) ? null : (other(t) as 0 | 1); }
     const off = this.state.offense;
     if (!this.isAI(off)) return off as 0 | 1;
     const def = other(off);
@@ -595,6 +888,12 @@ export class FootballScene extends BaseGameScene {
     if (this.phase === 'pre') {
       // the all-time QB hikes for whichever team has the ball
       if (this.allTime || (slot as Team) === off) { this.snap(); this.gesture = null; }
+      return;
+    }
+    const k = this.kick;
+    if (this.phase === 'pat') { if (k && k.stage === 'ready' && this.humanControls(k.kicker)) this.doPat(k.marker); return; }
+    if (this.phase === 'kickoff') {
+      if (k && k.stage === 'ready' && this.humanControls(k.kicker) && !k.charging) { k.charging = true; k.chargeT = 0; this.gesture = { id: p.id, x0: p.x, y0: p.y, t0: this.time.now, x: p.x, y: p.y, moved: false }; }
       return;
     }
     if (this.phase !== 'live') return;
@@ -624,6 +923,7 @@ export class FootballScene extends BaseGameScene {
     this.gesture = null;
     g.x = p.x; g.y = p.y;
     const slot = this.pointerSlot();
+    if (this.phase === 'kickoff' && this.kick?.charging) { this.doKickoff(Math.min(1, this.kick.chargeT / this.cfg.kickChargeTime)); return; }
     if (slot === null || this.phase !== 'live') { this.charging = false; return; }
     const a = this.controlled[slot];
     const off = this.state.offense;
@@ -665,6 +965,9 @@ export class FootballScene extends BaseGameScene {
     const dt = Math.min(0.05, dtMs / 1000);
     if (this.phase === 'pre') this.updatePre(dt);
     else if (this.phase === 'live') this.updateLive(dt);
+    else if (this.phase === 'pat') this.updatePat(dt);
+    else if (this.phase === 'kickoff') this.updateKickoff(dt);
+    this.drawKickBand();
     this.updateCamera(dt);
     this.updateCars(dt);
     this.drawField();
@@ -993,7 +1296,10 @@ export class FootballScene extends BaseGameScene {
 
   // ---------- Rendering ----------
   private updateCamera(dt: number): void {
-    const focusY = this.ball.y;
+    // receiving a kickoff: keep the person's returner in view and let the kick come to them
+    const kick = this.kick;
+    const ret = kick && kick.kind === 'kickoff' && kick.stage !== 'ready' ? this.captain(other(kick.team)) : null;
+    const focusY = ret && this.humanControls(ret) ? ret.y + 3 * this.dir : this.ball.y;
     const k = Math.min(1, dt * 4);
     this.camY += (focusY - 1.4 * this.dir - this.camY) * k;
     const half = this.cfg.width / 2;
@@ -1071,6 +1377,36 @@ export class FootballScene extends BaseGameScene {
         }
       }
       x0 += w + gap;
+    }
+  }
+
+  /** Green sweet band on the accuracy meter while a person lines up a point after. */
+  private drawKickBand(): void {
+    const g = this.kickG;
+    g.clear();
+    const k = this.kick;
+    if (!k || k.kind !== 'pat' || k.stage !== 'ready' || !this.humanControls(k.kicker)) return;
+    const r = this.meterRect;
+    const w = this.cfg.uprightHalf / 7; // the slice of the bar that splits the uprights
+    g.fillStyle(0x8bc34a, 0.55);
+    g.fillRect(r.x + r.width * (0.5 - w / 2), r.y - 4, r.width * w, r.height + 8);
+    g.lineStyle(3, 0xffffff, 0.9);
+    g.strokeRect(r.x + r.width * (0.5 - w / 2), r.y - 4, r.width * w, r.height + 8);
+  }
+
+  /** Goal posts at the back of each end zone. */
+  private drawUprights(g: Phaser.GameObjects.Graphics): void {
+    const L = this.cfg.fieldLength, E = this.cfg.endZone, hw = this.cfg.uprightHalf;
+    for (const y of [-E - 0.5, L + E + 0.5]) {
+      const base = this.screen(0, y, 0), bar = this.screen(0, y, 2.6);
+      if (!base.visible || !bar.visible || bar.scale <= 0) continue;
+      const l = this.screen(-hw, y, 2.6), r = this.screen(hw, y, 2.6), lt = this.screen(-hw, y, 6.2), rt = this.screen(hw, y, 6.2);
+      const w = Math.max(2, 0.14 * bar.scale);
+      g.lineStyle(w, 0xf7d94c, 1);
+      g.lineBetween(base.sx, base.sy, bar.sx, bar.sy);
+      g.lineBetween(l.sx, l.sy, r.sx, r.sy);
+      g.lineBetween(l.sx, l.sy, lt.sx, lt.sy);
+      g.lineBetween(r.sx, r.sy, rt.sx, rt.sy);
     }
   }
 
@@ -1163,6 +1499,7 @@ export class FootballScene extends BaseGameScene {
       g.fillStyle(0xffffff, 0.85);
       g.fillRect(p.sx - s * 0.32, p.sy - s * 0.95, s * 0.64, s * 0.2);
     }
+    this.drawUprights(g);
   }
 
   /** The quiet street along the right sideline: asphalt, edge lines, a dashed centre line, a curb and the grass verge. */

@@ -38,6 +38,21 @@ export interface FootballConfig {
   rushCount: number;
   /** All-time QB: nobody rushes, so the QB has this many seconds to throw before the play is dead. */
   qbClock: number;
+  /** Point after: kicked from this many yards out, worth this many points; the uprights are this wide (half, yards). */
+  patYard: number;
+  patPoints: number;
+  uprightHalf: number;
+  /** Kickoffs: kicked from the kicking team's own yard line; a kick into the end zone comes out to this yard. */
+  kickoffYard: number;
+  touchbackYard: number;
+  /** Kick distance (yards) at zero and full power, and seconds to charge a full-power kick. */
+  kickMin: number;
+  kickMax: number;
+  kickChargeTime: number;
+  /** A person who never kicks gets kicked for after this many seconds (keeps the game moving). */
+  kickAutoSeconds: number;
+  /** A loose kickoff nobody picks up is downed after this many seconds. */
+  looseSeconds: number;
 }
 
 export const FOOTBALL_CONFIG: FootballConfig = {
@@ -60,6 +75,16 @@ export const FOOTBALL_CONFIG: FootballConfig = {
   interceptRadius: 1.1,
   rushCount: 2.5,
   qbClock: 6,
+  patYard: 3,
+  patPoints: 1,
+  uprightHalf: 2.8,
+  kickoffYard: 10,
+  touchbackYard: 8,
+  kickMin: 12,
+  kickMax: 34,
+  kickChargeTime: 1.2,
+  kickAutoSeconds: 10,
+  looseSeconds: 5,
 };
 
 export type Team = 0 | 1;
@@ -79,8 +104,8 @@ export interface FootballState {
 }
 
 export type PlayOutcome =
-  | { type: 'tackled'; spot: number }
-  | { type: 'outOfBounds'; spot: number }
+  | { type: 'tackled'; spot: number; label?: string }
+  | { type: 'outOfBounds'; spot: number; label?: string }
   | { type: 'incomplete'; label?: string }
   | { type: 'touchdown' }
   | { type: 'safety' };
@@ -123,8 +148,37 @@ export function createFootball(cfg: FootballConfig = FOOTBALL_CONFIG, firstOffen
     lineOfScrimmage: ownYardLine(firstOffense, cfg.startYard, cfg),
     returning: false,
     winner: null,
-    lastEvent: 'Kickoff! ' + 'Ball on the ' + cfg.startYard + '.',
+    lastEvent: 'Kickoff!',
   };
+}
+
+/** The point after a touchdown: a good kick adds the point (and can win the game). */
+export function pointAfter(state: FootballState, team: Team, good: boolean, cfg: FootballConfig = FOOTBALL_CONFIG): FootballState {
+  if (state.winner !== null) return state;
+  const scores: [number, number] = [state.scores[0], state.scores[1]];
+  if (good) scores[team] += cfg.patPoints;
+  return withWinner({ ...state, scores, lastEvent: good ? 'POINT AFTER IS GOOD!' : 'No good.' }, cfg);
+}
+
+/** A kickoff has been fielded: the receiving team is live on a return (no down is used when it ends). */
+export function kickoffReturn(state: FootballState, receiving: Team): FootballState {
+  return { ...state, offense: receiving, down: 1, returning: true, lastEvent: 'Kickoff return!' };
+}
+
+/** A kickoff into the end zone: the receiving team starts at its touchback yard. */
+export function touchback(state: FootballState, receiving: Team, cfg: FootballConfig = FOOTBALL_CONFIG): FootballState {
+  return { ...state, offense: receiving, down: 1, lineOfScrimmage: ownYardLine(receiving, cfg.touchbackYard, cfg), returning: false, lastEvent: `Touchback. Ball on the ${cfg.touchbackYard}.` };
+}
+
+/** How far a kick travels (yards) for a charge of 0..1. */
+export function kickDistance(power: number, cfg: FootballConfig = FOOTBALL_CONFIG): number {
+  const p = Math.max(0, Math.min(1, power));
+  return cfg.kickMin + p * (cfg.kickMax - cfg.kickMin);
+}
+
+/** A point-after kick is good when it passes between the uprights. */
+export function patGood(landingX: number, cfg: FootballConfig = FOOTBALL_CONFIG): boolean {
+  return Math.abs(landingX) < cfg.uprightHalf;
 }
 
 /** A forward pass is legal only from behind (or on) the line of scrimmage. */
@@ -208,7 +262,7 @@ export function endPlay(state: FootballState, outcome: PlayOutcome, cfg: Footbal
         return score(def, cfg.safetyPoints, 'SAFETY!', def);
       }
       spot = clampSpot(spot, cfg);
-      const label = outcome.type === 'outOfBounds' ? 'Out of bounds' : 'Touched';
+      const label = outcome.label ?? (outcome.type === 'outOfBounds' ? 'Out of bounds' : 'Touched');
       if (s.returning) {
         return { ...s, returning: false, down: 1, lineOfScrimmage: spot, lastEvent: `${label} at the ${describeYard(off, spot, cfg)}. First down.` };
       }

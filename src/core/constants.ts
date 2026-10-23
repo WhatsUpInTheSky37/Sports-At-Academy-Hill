@@ -159,6 +159,8 @@ export const GAMES: Record<GameId, GameInfo> = {
       'To pass, press and hold on the field where you want the ball to land, then let go. The longer you hold, the harder the throw. A quick swipe throws too: swipe speed is the throw speed.',
       'Hard throws fly fast and flat; soft throws lob so your receiver can get under them. One forward pass per play, from behind the line.',
       'Four downs to score a touchdown (6 points). No first downs. Turnover on downs at the spot.',
+      'After a touchdown, kick the POINT AFTER: tap (or press F) when the sweeping marker is in the green to split the uprights for 1 more.',
+      'KICKOFFS start the game and follow every touchdown: hold to charge the kick and let go. Returning a kick: field it and run; a kick into the end zone is a touchback.',
       'Defense: the stick moves your defender; tap the field (or SWITCH) to control the one closest to the ball. One touch on the ball carrier ends the play.',
       'Interceptions can be returned. Getting touched in your own end zone is a SAFETY (2 points for the defense). First to 30 wins.',
       'All-time QB: you quarterback both teams and never play defense. Nobody rushes you, but you have 6 seconds to throw, and you cannot run it past the line. Whoever catches it is yours to run.',

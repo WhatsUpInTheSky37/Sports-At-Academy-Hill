@@ -29,6 +29,9 @@ async function run(viewport, label, hasTouch) {
     const s = window.__game.scene.getScene('FootballScene');
     return { phase: s.phase, charging: s.charging, passUsed: s.passUsed, pass: s.pass ? { to: s.pass.to, dur: s.pass.duration } : null, holder: s.holder ? s.holder.team : null, down: s.state.down, los: s.state.lineOfScrimmage, scores: [...s.state.scores], faces: s.athletes.map((a) => a.sprite.sprite.frame.name), scales: s.athletes.map((a) => +a.sprite.charScale.toFixed(2)) };
   });
+  // the game opens with a kickoff (the CPU kicks to the person, who is walked under it): wait for the first snap
+  const untilPre = async () => { for (let i = 0; i < 900; i++) { const st = await info(); if (st.phase === 'pre') return st; if (st.phase === 'pat') { await page.keyboard.down('f'); await step(2); await page.keyboard.up('f'); } if (st.phase === 'kickoff') { await page.keyboard.down('f'); await step(20); await page.keyboard.up('f'); } await step(5); } return info(); };
+  await untilPre();
   await step(30);
   let st = await info();
   console.log(label, 'pre-snap faces', st.faces, 'scales', st.scales);
@@ -69,7 +72,7 @@ async function run(viewport, label, hasTouch) {
   await step(20);
   await page.screenshot({ path: `smoke-output/football-${label}-pass.png` });
   // play out until the next pre-snap, then test a swipe throw
-  for (let i = 0; i < 600; i++) { await step(4); st = await info(); if (st.phase === 'pre' && st.holder === 0) break; }
+  for (let i = 0; i < 900; i++) { await step(4); st = await info(); if (st.phase === 'pre' && st.holder === 0) break; if (st.phase === 'pat') { await page.keyboard.down('f'); await step(2); await page.keyboard.up('f'); } if (st.phase === 'kickoff') { await page.keyboard.down('f'); await step(20); await page.keyboard.up('f'); } }
   console.log(label, 'next play: down', st.down, 'los', st.los.toFixed(1));
   if (st.phase === 'pre' && st.holder === 0) {
     if (hasTouch) await page.touchscreen.tap(fieldPt.x, fieldPt.y); else await page.mouse.click(fieldPt.x, fieldPt.y);
@@ -119,6 +122,9 @@ async function runFormat(viewport, label, football, hasTouch = false) {
     const s = window.__game.scene.getScene('FootballScene');
     return { phase: s.phase, size: s.size, allTime: s.allTime, n: s.athletes.length, ids: s.athletes.map((a) => a.character.id + ':' + a.team), offense: s.state.offense, qbTeam: s.qbAthlete ? s.qbAthlete.team : null, controlled: s.controlled[0] ? s.controlled[0].character.id : null, passUsed: s.passUsed, holder: s.holder ? s.holder.character.id : null, scores: [...s.state.scores], down: s.state.down };
   });
+  // the game opens with a kickoff (the CPU kicks to the person, who is walked under it): wait for the first snap
+  const untilPre = async () => { for (let i = 0; i < 900; i++) { const st = await info(); if (st.phase === 'pre') return st; if (st.phase === 'pat') { await page.keyboard.down('f'); await step(2); await page.keyboard.up('f'); } if (st.phase === 'kickoff') { await page.keyboard.down('f'); await step(20); await page.keyboard.up('f'); } await step(5); } return info(); };
+  await untilPre();
   await step(30);
   let st = await info();
   console.log(label, JSON.stringify(st));
@@ -156,6 +162,8 @@ async function runFormat(viewport, label, football, hasTouch = false) {
   for (let i = 0; i < 900; i++) {
     await step(5); st = await info();
     if (st.phase === 'pre' && st.offense === 1) break;
+    if (st.phase === 'pat') { await page.keyboard.down('f'); await step(2); await page.keyboard.up('f'); }
+    if (st.phase === 'kickoff') { await page.keyboard.down('f'); await step(20); await page.keyboard.up('f'); }
     if (st.phase === 'pre' && st.offense === 0) { await page.keyboard.down('f'); await step(2); await page.keyboard.up('f'); await step(20); }
     else if (st.phase === 'live' && !st.passUsed && st.holder) { await page.keyboard.down('f'); await step(30); await page.keyboard.up('f'); await page.keyboard.down('w'); await step(20); await page.keyboard.up('w'); }
   }
