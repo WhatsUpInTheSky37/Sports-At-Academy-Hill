@@ -58,7 +58,7 @@ export const DEFAULT_SHOT: ShotConfig = {
   powerPer100Ms: 0.055,
   aimLateral: 0.45,
   aimDepth: 0.35,
-  restitutionRim: 0.45,
+  restitutionRim: 0.38,
   restitutionBoard: 0.55,
   restitutionGround: 0.5,
 };
@@ -142,7 +142,20 @@ export function flickToShot(dx: number, dy: number, screenW: number, screenH: nu
 /** Shot noise that grows with distance: close shots are nearly automatic, deep ones are a gamble. */
 export function shotNoise(spot: { x: number; z: number }): { powerSd: number; aimSd: number } {
   const dist = Math.hypot(spot.x, spot.z);
-  return { powerSd: 0.012 + 0.006 * dist, aimSd: 0.03 + 0.015 * dist };
+  return { powerSd: 0.008 + 0.004 * dist, aimSd: 0.02 + 0.01 * dist };
+}
+
+/**
+ * Shot assist for a person's flick: a release that is nearly right gets nudged toward perfect (the
+ * remaining error is scaled by `keep`), so a decent pull goes in. Outside the window nothing changes.
+ */
+export const ASSIST = { powerWindow: 0.1, powerKeep: 0.45, aimWindow: 0.2, aimKeep: 0.5 };
+
+export function assistShot(powerFactor: number, aimX: number): { powerFactor: number; aimX: number } {
+  const dp = powerFactor - 1;
+  const pf = Math.abs(dp) <= ASSIST.powerWindow ? 1 + dp * ASSIST.powerKeep : powerFactor;
+  const ax = Math.abs(aimX) <= ASSIST.aimWindow ? aimX * ASSIST.aimKeep : aimX;
+  return { powerFactor: pf, aimX: ax };
 }
 
 /**
@@ -213,7 +226,7 @@ export function simulateShotPower(spot: { x: number; z: number }, powerFactor: n
     if (!made && py >= cfg.rimHeight && y < cfg.rimHeight && vy < 0) {
       const f = (py - cfg.rimHeight) / (py - y);
       const cx = px + (x - px) * f, cz = pz + (z - pz) * f;
-      if (Math.hypot(cx, cz) < cfg.rimRadius - cfg.ballRadius * 0.35) {
+      if (Math.hypot(cx, cz) < cfg.rimRadius - cfg.ballRadius * 0.2) {
         made = true;
         events.push({ t, kind: 'swish' });
         // net slows the ball

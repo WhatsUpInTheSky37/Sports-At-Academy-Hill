@@ -6,7 +6,7 @@ import { Audio } from '../../core/audio';
 import { Meter, displayStyle, textStyle, makeButton, impact, confetti } from '../../core/ui';
 import { CharacterSprite } from '../../art/characters';
 import { createCanvas, paintAsphalt, paintCypress, paintHaze, paintLawnHD, paintPineHD, paintSkyHD, paintTreeHD, paintVignette, rng } from '../../art/environment';
-import { DEFAULT_SHOT, FLICK, SPOTS, aiChooseSpot, aiShot, flickToShot, gaussian, powerFromOffset, shotNoise, simulateShotPower, type ShotConfig, type ShotResult, type Spot } from './shot';
+import { DEFAULT_SHOT, FLICK, SPOTS, aiChooseSpot, aiShot, assistShot, flickToShot, gaussian, powerFromOffset, shotNoise, simulateShotPower, type ShotConfig, type ShotResult, type Spot } from './shot';
 import { applyShot, chooseSpot, createHorse, lettersDisplay, type HorseState } from './rules';
 
 /** Visual tuning for the HORSE scene. */
@@ -756,6 +756,8 @@ export class HorseScene extends BaseGameScene {
     const spot = SPOTS[this.spotIndex];
     let pf = powerFactor, ax = aimX;
     if (noisy) {
+      // a person's nearly-right release gets a nudge toward perfect, then the distance wobble
+      ({ powerFactor: pf, aimX: ax } = assistShot(pf, ax));
       const n = shotNoise(spot);
       pf *= 1 + gaussian(n.powerSd);
       ax += gaussian(n.aimSd);

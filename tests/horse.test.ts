@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { applyShot, chooseSpot, createHorse, lettersDisplay, MAX_LETTERS } from '../src/games/horse/rules';
-import { DEFAULT_SHOT, FLICK, SPOTS, flickToShot, powerFromOffset, shotNoise, simulateShot, simulateShotPower } from '../src/games/horse/shot';
+import { DEFAULT_SHOT, FLICK, SPOTS, assistShot, flickToShot, powerFromOffset, shotNoise, simulateShot, simulateShotPower } from '../src/games/horse/shot';
 
 describe('HORSE rules', () => {
   it('a made set shot puts the opponent on the clock from the same spot', () => {
@@ -124,6 +124,21 @@ describe('HORSE shot physics', () => {
     expect(flickToShot(W * FLICK.lateralPull, -H * 0.3, W, H).aimX).toBeCloseTo(1, 5);
     expect(flickToShot(-W, -H * 0.3, W, H).aimX).toBe(-1);
     expect(simulateShotPower(SPOTS[0], sweet.powerFactor, sweet.aimX, 0, DEFAULT_SHOT).made).toBe(true);
+  });
+
+  it('the assist nudges a nearly-right flick toward perfect and leaves a bad one alone', () => {
+    const near = assistShot(1.08, 0.12);
+    expect(Math.abs(near.powerFactor - 1)).toBeLessThan(0.08);
+    expect(Math.abs(near.aimX)).toBeLessThan(0.12);
+    expect(near.powerFactor).toBeGreaterThan(1); // same side, just closer
+    const bad = assistShot(1.3, 0.6);
+    expect(bad.powerFactor).toBe(1.3);
+    expect(bad.aimX).toBe(0.6);
+    // a slightly long, slightly off free throw goes in with the assist and not without it
+    const raw = simulateShotPower(SPOTS[0], 1.09, 0.18, 0, DEFAULT_SHOT);
+    const helped = simulateShotPower(SPOTS[0], near.powerFactor, near.aimX, 0, DEFAULT_SHOT);
+    expect(helped.made).toBe(true);
+    void raw;
   });
 
   it('shot noise grows with distance from the hoop', () => {
