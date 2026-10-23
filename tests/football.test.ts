@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { FOOTBALL_CONFIG, canForwardPass, clampX, createFootball, endPlay, interception, outOfBoundsX, ownYardLine, yardsToGoal } from '../src/games/football/rules';
+import { FOOTBALL_CONFIG, canForwardPass, clampX, createFootball, endPlay, interception, kickDistance, kickoffReturn, outOfBoundsX, ownYardLine, patGood, pointAfter, touchback, yardsToGoal } from '../src/games/football/rules';
 import { canCatch, isTouch, leadPoint, makePass, moveToward, passPosition } from '../src/games/football/sim';
 
 const cfg = FOOTBALL_CONFIG;
@@ -168,5 +168,48 @@ describe('football sim helpers', () => {
     expect(isTouch({ x: 0, y: 0 }, { x: 3, y: 0 })).toBe(false);
     expect(canCatch({ x: 0, y: 0, z: 1 }, { x: 1, y: 0 }, cfg.catchRadius)).toBe(true);
     expect(canCatch({ x: 0, y: 0, z: 5 }, { x: 1, y: 0 }, cfg.catchRadius)).toBe(false);
+  });
+});
+
+describe('kicks', () => {
+  it('a good point after adds a point and can win the game', () => {
+    let s = createFootball(cfg, 0);
+    s = { ...s, scores: [6, 0] };
+    expect(pointAfter(s, 0, false, cfg).scores).toEqual([6, 0]);
+    expect(pointAfter(s, 0, false, cfg).lastEvent).toBe('No good.');
+    const good = pointAfter(s, 0, true, cfg);
+    expect(good.scores).toEqual([7, 0]);
+    expect(good.winner).toBeNull();
+    const clincher = pointAfter({ ...s, scores: [cfg.winScore - 1, 0] }, 0, true, cfg);
+    expect(clincher.winner).toBe(0);
+  });
+
+  it('a fielded kickoff is a live return; a tackle on it is a first down at the spot', () => {
+    let s = createFootball(cfg, 0);
+    s = kickoffReturn(s, 1);
+    expect(s.offense).toBe(1);
+    expect(s.returning).toBe(true);
+    s = endPlay(s, { type: 'tackled', spot: 27, label: 'Downed' }, cfg);
+    expect(s.returning).toBe(false);
+    expect(s.down).toBe(1);
+    expect(s.lineOfScrimmage).toBe(27);
+    expect(s.lastEvent).toContain('Downed');
+  });
+
+  it('a kick into the end zone is a touchback at the receiving team\'s touchback yard', () => {
+    const s = touchback(createFootball(cfg, 0), 1, cfg);
+    expect(s.offense).toBe(1);
+    expect(s.returning).toBe(false);
+    expect(s.lineOfScrimmage).toBe(cfg.fieldLength - cfg.touchbackYard);
+  });
+
+  it('kick distance scales with the charge and the uprights decide a point after', () => {
+    expect(kickDistance(0, cfg)).toBe(cfg.kickMin);
+    expect(kickDistance(1, cfg)).toBe(cfg.kickMax);
+    expect(kickDistance(2, cfg)).toBe(cfg.kickMax);
+    expect(kickDistance(0.5, cfg)).toBeCloseTo((cfg.kickMin + cfg.kickMax) / 2, 5);
+    expect(patGood(0, cfg)).toBe(true);
+    expect(patGood(cfg.uprightHalf - 0.1, cfg)).toBe(true);
+    expect(patGood(-cfg.uprightHalf - 0.1, cfg)).toBe(false);
   });
 });
