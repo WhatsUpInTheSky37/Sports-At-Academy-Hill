@@ -65,9 +65,10 @@ const BASE_POSES: Record<BasePoseName, Pose> = {
   goalie: { lArm: 52, rArm: 52, lBend: 48, rBend: 48, lLeg: 40, rLeg: -40, face: 'focus', crouch: 0.48, armsFront: true },
   // wrist shot follow-through: hands pushed forward and across
   wrist: { lArm: 88, rArm: 60, lBend: 20, rBend: 35, lLeg: 28, rLeg: -24, face: 'shout', lean: 10, crouch: 0.24, armsFront: true },
-  // wrestling strikes: a straight punch (lead arm out, rear arm guarding) and a leg kick (lead leg swung high)
-  punch: { lArm: 92, rArm: 40, lBend: 0, rBend: 100, lLeg: 28, rLeg: -22, face: 'shout', lean: 10, crouch: 0.18, armsFront: true },
-  kick: { lArm: 55, rArm: 25, lBend: 60, rBend: 70, lLeg: 85, rLeg: -8, face: 'shout', lean: -12, crouch: 0.06, armsFront: true },
+  // wrestling strikes: a straight punch (lead arm out, rear arm guarding) and a leg kick (lead leg swung high).
+  // The base art faces right, toward the opponent, so the striking limb is the RIGHT one (mirrored sheets flip it).
+  punch: { lArm: 40, rArm: 92, lBend: 100, rBend: 0, lLeg: -22, rLeg: 28, face: 'shout', lean: 10, crouch: 0.18, armsFront: true },
+  kick: { lArm: 25, rArm: 55, lBend: 70, rBend: 60, lLeg: -8, rLeg: 85, face: 'shout', lean: -12, crouch: 0.06, armsFront: true },
   // pin cover: lying across the opponent, one arm hooked down over them, the other thrown up for the count
   pin: { lArm: 95, rArm: 105, lBend: 10, rBend: 25, lLeg: 36, rLeg: -30, face: 'shout', rotate: 62, armsFront: true },
   // goalie dives: stretched out full length toward the post (rotation decides the side, mirroring does not)
