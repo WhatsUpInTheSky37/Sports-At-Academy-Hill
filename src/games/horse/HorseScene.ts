@@ -833,6 +833,7 @@ export class HorseScene extends BaseGameScene {
       winnerSlot: w,
       summary: `${this.name(l)} spelled H-O-R-S-E after ${this.state.shotsTaken} shots`,
       scores: [lettersDisplay(this.state.letters[0]), lettersDisplay(this.state.letters[1])],
+      points: [this.state.letters[0], this.state.letters[1]],
     });
   }
 

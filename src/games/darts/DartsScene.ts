@@ -357,6 +357,7 @@ export class DartsScene extends BaseGameScene {
         winnerSlot: w,
         summary: `${this.name(w)} checked out in ${dartsUsed} darts; ${this.name(other)} had ${this.state.scores[other]} left`,
         scores: w === 0 ? ['0 left', `${this.state.scores[1]} left`] : [`${this.state.scores[0]} left`, '0 left'],
+        points: [dartsUsed, dartsUsed],
       }));
       return;
     }

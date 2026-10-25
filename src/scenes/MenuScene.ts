@@ -67,8 +67,10 @@ export class MenuScene extends Phaser.Scene {
     });
     const rows = Math.ceil(items.length / cols);
     const by = startY + rows * rowH + (P ? 20 : -10);
-    makeButton(this, W / 2 - 230, by, 'SETTINGS', () => this.scene.start('SettingsScene'), { width: 420, height: 86, fontSize: 30, color: THEME.accent2 });
-    makeButton(this, W / 2 + 230, by, 'RECORDS', () => this.scene.start('RecordsScene'), { width: 420, height: 86, fontSize: 30, color: 0x4fc3f7 });
+    const bw = P ? 300 : 360;
+    makeButton(this, W / 2 - (bw + 20), by, 'SETTINGS', () => this.scene.start('SettingsScene'), { width: bw, height: 86, fontSize: P ? 24 : 28, color: THEME.accent2 });
+    makeButton(this, W / 2, by, 'RECORDS', () => this.scene.start('RecordsScene'), { width: bw, height: 86, fontSize: P ? 24 : 28, color: 0x4fc3f7 });
+    makeButton(this, W / 2 + (bw + 20), by, 'HIGH SCORES', () => this.scene.start('HighScoresScene'), { width: bw, height: 86, fontSize: P ? 24 : 28, color: 0xf5c518 });
     const r = Storage.records;
     this.add.text(W / 2, by + 60, `Matches played: ${r.matchesPlayed}   •   Sound ${s.soundOn ? 'on' : 'off'}, music ${s.musicOn ? 'on' : 'off'}`, displayStyle(22, '#fff3c4', { strokeThickness: 3 })).setOrigin(0.5, 0);
     this.add.text(W / 2, H - 20, 'Plays in portrait or landscape. Local two-player wrestling, hockey and football need a keyboard.', textStyle(20, '#fff3c4', { align: 'center', wordWrap: { width: W - 100 } })).setOrigin(0.5, 1);

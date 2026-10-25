@@ -26,6 +26,8 @@ export const FOOTBALL_VISUAL = {
   aiSnapDelay: 1.3,
   /** Seconds the play result stays on screen. */
   deadBallPause: 1700,
+  /** A pass cannot be intercepted until it has flown this far (yards) from the thrower. */
+  interceptMinFlight: 4,
   /** Touch grace after an interception (new defenders cannot touch the returner instantly). */
   interceptGrace: 0.7,
   /** A pointer that moves more than this (logical px) is a swipe, not a press. */
@@ -843,6 +845,7 @@ export class FootballScene extends BaseGameScene {
       winnerSlot: w,
       summary: `${this.name(w)}'s team wins ${s[w]} - ${s[other(w)]}`,
       scores: [`${s[0]} pts`, `${s[1]} pts`],
+      points: [s[0], s[1]],
     });
   }
 
@@ -1132,7 +1135,9 @@ export class FootballScene extends BaseGameScene {
             impact(this, carrier.sprite.x, carrier.sprite.y - 40, 0xffffff, 10, 700, 8);
             Audio.sfx('tackle');
             dfd.sprite.setAnim(dfd.away ? ['back-push', 'back-push'] : ['push', 'push'], 4, false);
-            return this.endPlayWith({ type: 'tackled', spot: carrier.y });
+            // the quarterback caught behind the line before throwing is a sack, not a tackle after a catch
+            const sacked = !this.passUsed && !this.state.returning && canForwardPass(off, carrier.y, this.state.lineOfScrimmage);
+            return this.endPlayWith({ type: 'tackled', spot: carrier.y, label: sacked ? 'Sacked' : undefined });
           }
         }
       }
@@ -1141,7 +1146,11 @@ export class FootballScene extends BaseGameScene {
       const pos = passPosition(this.pass);
       this.ball = pos;
       const target = this.passTarget!;
+      // a rusher standing on the quarterback cannot pick the ball out of their hand: the pass has to
+      // get a few yards downfield before anyone can intercept it
+      const clearOfQb = Math.hypot(pos.x - this.pass.from.x, pos.y - this.pass.from.y) > FOOTBALL_VISUAL.interceptMinFlight;
       for (const dfd of defenders) {
+        if (!clearOfQb) break;
         const h = human(dfd);
         const radius = this.cfg.interceptRadius * (h !== null ? 1.15 : 0.65 + this.ai * 0.55);
         if (canCatch(pos, dfd, radius, 2.4)) {

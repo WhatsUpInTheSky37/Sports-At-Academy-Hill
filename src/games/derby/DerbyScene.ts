@@ -759,6 +759,7 @@ export class DerbyScene extends BaseGameScene {
       winnerSlot: w,
       summary: `${s[w]} - ${s[w === 0 ? 1 : 0]} home runs${this.state.round > 1 ? ` (after ${this.state.round - 1} tiebreak round${this.state.round > 2 ? 's' : ''})` : ''}`,
       scores: [`${s[0]} HR`, `${s[1]} HR`],
+      points: [s[0], s[1]],
     });
   }
 

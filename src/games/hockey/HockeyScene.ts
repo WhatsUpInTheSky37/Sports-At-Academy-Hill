@@ -705,6 +705,7 @@ export class HockeyScene extends BaseGameScene {
       winnerSlot: w,
       summary: `${g[w]} - ${g[w === 0 ? 1 : 0]} in the shootout${this.state.suddenDeath ? ' (sudden death)' : ''}`,
       scores: [`${g[0]} goals`, `${g[1]} goals`],
+      points: [g[0], g[1]],
     });
   }
 
