@@ -43,6 +43,8 @@ The smoke and playthrough scripts open `?renderer=canvas`, a URL switch that for
 ## Playing
 
 - **Orientation:** plays in landscape or portrait. The layout adapts; on a phone just hold it however you like.
+- **CPU turns:** in derby, HORSE, billiards and darts the CPU's turn is fast-forwarded by default (a button in the game lets you watch it, and Settings can flip the default).
+- **High scores:** every finished match posts the people's numbers to a shared online board (Supabase, public key, insert-only) under the kid they played as: home runs, goals, points, letters taken on a HORSE win, darts to check out, time to the pin, opponent's balls left on a pool win. HIGH SCORES on the menu shows the top ten per game; the result card says where you landed.
 - **Modes:** 1 player vs CPU (Easy / Normal / Hard) or 2 players on one device. Derby, HORSE, billiards, hockey and darts are pass-and-play (touch or keyboard). Wrestling and football are simultaneous, so local two-player needs a physical keyboard; the setup screen says so.
 - **Characters:** pick any two of Will, Vinnie, Bryan and Ben for either side.
 - **Touch:** every game has on-screen controls in single player (joystick + buttons, or drag-to-aim + big action buttons).

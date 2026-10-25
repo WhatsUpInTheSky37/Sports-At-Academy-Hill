@@ -8,6 +8,7 @@ import { MenuScene } from './scenes/MenuScene';
 import { SetupScene } from './scenes/SetupScene';
 import { SettingsScene } from './scenes/SettingsScene';
 import { RecordsScene } from './scenes/RecordsScene';
+import { HighScoresScene } from './scenes/HighScoresScene';
 import { ChampionshipScene } from './scenes/ChampionshipScene';
 import { ConfirmExitScene, HowToScene, PauseScene, ResultScene } from './scenes/overlays';
 import { DerbyScene } from './games/derby/DerbyScene';
@@ -39,7 +40,7 @@ const config: Phaser.Types.Core.GameConfig = {
   },
   input: { activePointers: 4 },
   scene: [
-    BootScene, MenuScene, SetupScene, SettingsScene, RecordsScene, ChampionshipScene,
+    BootScene, MenuScene, SetupScene, SettingsScene, RecordsScene, HighScoresScene, ChampionshipScene,
     HowToScene, PauseScene, ResultScene, ConfirmExitScene,
     DerbyScene, HorseScene, PoolScene, WrestlingScene, HockeyScene, FootballScene, DartsScene,
   ],

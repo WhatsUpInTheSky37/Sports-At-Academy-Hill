@@ -212,4 +212,12 @@ describe('kicks', () => {
     expect(patGood(cfg.uprightHalf - 0.1, cfg)).toBe(true);
     expect(patGood(-cfg.uprightHalf - 0.1, cfg)).toBe(false);
   });
+
+  it('a sack reads as a sack, not a touch or an interception', () => {
+    const st = { ...createFootball(), offense: 0 as const, lineOfScrimmage: 20, down: 1, returning: false };
+    const next = endPlay(st, { type: 'tackled', spot: 16, label: 'Sacked' });
+    expect(next.lastEvent).toMatch(/^Sacked\. Loss of 4\./);
+    expect(next.offense).toBe(0);
+    expect(next.down).toBe(2);
+  });
 });

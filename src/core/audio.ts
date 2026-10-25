@@ -19,6 +19,8 @@ class AudioEngine {
   private nextNoteTime = 0;
   private musicStyle: 'outdoor' | 'basement' = 'outdoor';
   private musicPlaying = false;
+  /** Set while a CPU turn is fast-forwarded: effects would just chatter. */
+  quiet = false;
 
   /** Must be called from a user gesture at least once. */
   unlock(): void {
@@ -98,7 +100,7 @@ class AudioEngine {
   }
 
   sfx(name: SfxName): void {
-    if (!this.ctx || !Storage.settings.soundOn) return;
+    if (!this.ctx || !Storage.settings.soundOn || this.quiet) return;
     const t = this.ctx.currentTime;
     switch (name) {
       case 'click': this.tone(880, 0.05, { type: 'square', gain: 0.12 }); this.tone(1320, 0.06, { type: 'sine', gain: 0.1, when: t + 0.03 }); break;

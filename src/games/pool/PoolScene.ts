@@ -693,10 +693,13 @@ export class PoolScene extends BaseGameScene {
     const w = this.state.winner!;
     const l = w === 0 ? 1 : 0;
     const left = (slot: 0 | 1) => { const g = this.state.groups[slot]; return g ? `${remaining(this.state.balls, g)} ${g === 'solid' ? 'solids' : 'stripes'} left` : 'open table'; };
+    const leftN = (slot: 0 | 1) => { const g = this.state.groups[slot]; return g ? remaining(this.state.balls, g) : 7; };
+    // the board counts how many of the loser's balls were still up when the 8 dropped
     this.finishMatch({
       winnerSlot: w,
       summary: this.state.message,
       scores: [left(0), left(1)].map((t, i) => (i === w ? 'WON on the 8' : t)) as [string, string],
+      points: w === 0 ? [leftN(1), 0] : [0, leftN(0)],
     });
     void l;
   }

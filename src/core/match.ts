@@ -26,6 +26,8 @@ export interface MatchResult {
   summary: string;
   /** Per-player score strings for the result card. */
   scores: [string, string];
+  /** Per-player numbers for the online high-score board (see SCORE_META for what each game counts). */
+  points?: [number, number];
 }
 
 export function buildMatch(gameId: GameId, opts: { mode: Mode; difficulty: Difficulty; p1: CharacterId; p2: CharacterId; championship?: ChampionshipState; football?: FootballSetup }): MatchConfig {

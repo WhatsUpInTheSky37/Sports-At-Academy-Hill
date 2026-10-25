@@ -5,7 +5,7 @@ import type { MatchConfig, MatchResult, PlayerInfo } from './match';
 import { recordResult, aiLevel } from './match';
 import { Storage } from './storage';
 import { Audio } from './audio';
-import { announce, bubble, displayStyle, makeIconButton } from './ui';
+import { announce, bubble, displayStyle, makeButton, makeIconButton } from './ui';
 import { buildCharacterTextures, purgeCharacterSheets } from '../art/characters';
 import { buildEquipmentTextures } from '../art/equipment';
 import { pick } from './characters';
@@ -32,8 +32,56 @@ export abstract class BaseGameScene extends Phaser.Scene {
   private panelRects: Phaser.Geom.Rectangle[] = [];
   private statusText!: Phaser.GameObjects.Text;
   private scoreboardSub!: Phaser.GameObjects.Text;
+  /** Whose turn the scene last announced (turn-based games), for CPU-turn fast-forwarding. */
+  private turnSlot: 0 | 1 | null = null;
+  /** Fast-forward the CPU's turns in this match (starts from the setting; the button toggles it). */
+  private ffWanted = true;
+  private ffButton: (Phaser.GameObjects.Container & { setLabel: (s: string) => void }) | null = null;
+  private ffOn = false;
+  /** How many sim steps a fast-forwarded frame runs. */
+  static readonly FAST_FORWARD = 6;
 
-  constructor(key: string) { super(key); }
+  constructor(key: string) {
+    super(key);
+    // Wrap the subclass's update so a fast-forwarded frame steps the game several times: the CPU's
+    // turn in derby, HORSE, pool or darts flies by instead of being watched.
+    const tick = this.update as (t: number, d: number) => void;
+    if (typeof tick === 'function') {
+      this.update = (t: number, d: number) => {
+        const n = this.fastFactor();
+        this.applySpeed(n);
+        for (let i = 0; i < n; i++) tick.call(this, t + i * d, d);
+      };
+    }
+  }
+
+  /** Turn-based games where a person has nothing to do during the CPU's turn. */
+  private canFastForward(): boolean {
+    const info = GAMES[this.gameId];
+    return info.turnBased && this.gameId !== 'hockey' && this.match.mode === 'single';
+  }
+
+  private fastFactor(): number {
+    if (!this.started || this.finished || !this.ffWanted || !this.canFastForward()) return 1;
+    return this.turnSlot !== null && this.isAI(this.turnSlot) ? BaseGameScene.FAST_FORWARD : 1;
+  }
+
+  private applySpeed(n: number): void {
+    const on = n > 1;
+    if (on === this.ffOn) return;
+    this.ffOn = on;
+    this.time.timeScale = n;
+    this.tweens.timeScale = n;
+    Audio.quiet = on;
+  }
+
+  private refreshFastForwardButton(): void {
+    const b = this.ffButton;
+    if (!b) return;
+    const show = this.canFastForward() && !this.finished && this.turnSlot !== null && this.isAI(this.turnSlot);
+    b.setVisible(show);
+    if (show) b.setLabel(this.ffWanted ? '⏩ CPU TURN  •  tap to watch' : '⏩ SKIP CPU TURN');
+  }
 
   init(data: GameSceneData): void {
     this.match = data.match;
@@ -116,6 +164,12 @@ export abstract class BaseGameScene extends Phaser.Scene {
     this.scoreboardSub = this.add.text(W / 2, subY + 22, '', displayStyle(22, '#ffffff', { strokeThickness: 0, align: 'center' })).setOrigin(0.5);
     this.hud.add(this.scoreboardSub);
     this.statusText = this.add.text(W / 2, subY + 60, '', displayStyle(30, '#ffffff', { align: 'center' })).setOrigin(0.5, 0);
+    // CPU-turn fast-forward (turn-based games vs the CPU): shown while the CPU is up
+    this.ffWanted = Storage.settings.cpuTurns !== 'watch';
+    this.turnSlot = null; this.ffOn = false;
+    this.ffButton = makeButton(this, W - 30 - 170, this.hudBottom + 2, '⏩ SKIP CPU TURN', () => { this.ffWanted = !this.ffWanted; this.refreshFastForwardButton(); if (this.fastFactor() === 1) this.applySpeed(1); }, { width: 340, height: 50, fontSize: 19, color: 0x37474f, textColor: '#ffffff' });
+    this.ffButton.setDepth(9300).setVisible(false);
+    this.hud.add(this.ffButton);
     this.hud.add(this.statusText);
     this.hudBottom = subY + 100;
     // help / pause buttons flank the title plate
@@ -183,6 +237,9 @@ export abstract class BaseGameScene extends Phaser.Scene {
   setTurn(slot: 0 | 1 | null): void {
     this.turnMarkers.forEach((m, i) => m.setVisible(slot === i));
     this.nameTexts.forEach((t, i) => t.setColor(slot === i ? '#f5c518' : THEME.text));
+    this.turnSlot = slot;
+    this.refreshFastForwardButton();
+    if (this.fastFactor() === 1) this.applySpeed(1);
   }
 
   announce(text: string, opts: Parameters<typeof announce>[2] = {}): void { announce(this, text, opts); }
@@ -200,6 +257,8 @@ export abstract class BaseGameScene extends Phaser.Scene {
   protected finishMatch(result: MatchResult): void {
     if (this.finished) return;
     this.finished = true;
+    this.applySpeed(1);
+    this.refreshFastForwardButton();
     recordResult(this.match, result);
     Audio.sfx('win');
     this.time.delayedCall(900, () => {

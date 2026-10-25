@@ -6,6 +6,8 @@ import { Storage } from '../core/storage';
 import { Audio } from '../core/audio';
 import { recordEventResult } from '../core/championship';
 import { CharacterSprite } from '../art/characters';
+import { SCORE_META, entriesFor, submitScore } from '../core/leaderboard';
+import { CHARACTERS } from '../core/characters';
 import type { BaseGameScene } from '../core/BaseGameScene';
 
 interface HowToData { gameId: GameId; parent: string; mode: Mode; onClose?: () => void; }
@@ -112,6 +114,22 @@ export class PauseScene extends Phaser.Scene {
 
 interface ResultData { parent: string; match: MatchConfig; result: MatchResult; }
 
+/** Post the people's scores for a finished match and describe where they landed (best-effort). */
+async function postScores(match: MatchConfig, result: MatchResult): Promise<string[]> {
+  const lines: string[] = [];
+  for (const e of entriesFor(match, result)) {
+    const ch = CHARACTERS[e.character];
+    try {
+      const rank = await submitScore(e);
+      const meta = SCORE_META[e.game];
+      lines.push(rank === null ? `${ch.name}: ${meta.format(e.score)} posted` : rank <= 10 ? `${ch.name}: #${rank} on the ${GAMES[e.game].short} board with ${meta.format(e.score)}!` : `${ch.name}: ${meta.format(e.score)} (#${rank} online)`);
+    } catch {
+      lines.push(`${ch.name}: score not posted (no connection)`);
+    }
+  }
+  return lines;
+}
+
 export class ResultScene extends Phaser.Scene {
   constructor() { super('ResultScene'); }
   create(data: ResultData): void {
@@ -140,6 +158,17 @@ export class ResultScene extends Phaser.Scene {
     this.add.text(W / 2, top + 300, result.summary, textStyle(28, THEME.text, { align: 'center', wordWrap: { width: 400 } })).setOrigin(0.5, 0);
     confetti(this, W / 2 - dx, cy - 90, 70);
     this.time.delayedCall(400, () => confetti(this, W / 2, top + 250, 50));
+    // online high score: post the people's numbers and say where they landed
+    const entries = entriesFor(match, result);
+    if (entries.length) {
+      const hs = this.add.text(W / 2, cy + (match.championship ? 170 : 130), 'Posting to the high-score board…', textStyle(22, THEME.textDim, { align: 'center', wordWrap: { width: pw - 80 } })).setOrigin(0.5, 0);
+      postScores(match, result).then((lines) => {
+        if (!this.scene.isActive()) return;
+        const best = lines.some((l) => l.includes('#1 '));
+        hs.setText(lines.join('\n')).setColor(best ? '#f5c518' : lines.some((l) => l.includes('#')) ? '#ffffff' : THEME.textDim);
+        if (best) hs.setFontSize(26);
+      });
+    }
     const by = top + ph - 110;
     const bx1 = P ? W / 2 : W / 2 - 240;
     const bx2 = P ? W / 2 : W / 2 + 240;

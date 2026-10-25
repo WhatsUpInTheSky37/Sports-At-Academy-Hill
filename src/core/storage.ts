@@ -14,6 +14,8 @@ export interface Settings {
   touch: 'auto' | 'on' | 'off';
   /** Derby batting: 'tap' = tap where the ball is when it arrives; 'classic' = aim reticle + SWING button. */
   derbyHitMode: 'tap' | 'classic';
+  /** Turn-based games: 'skip' fast-forwards the CPU's turns (a button lets you watch), 'watch' plays them out. */
+  cpuTurns: 'skip' | 'watch';
   /** Football: team size, the all-time-QB option, the two rosters (captain first) and who plays all-time QB. */
   footballSize: TeamSize;
   footballAllTime: boolean;
@@ -48,6 +50,7 @@ export const DEFAULT_SETTINGS: Settings = {
   p2: 'vinnie',
   touch: 'auto',
   derbyHitMode: 'tap',
+  cpuTurns: 'skip',
   footballSize: 2,
   footballAllTime: false,
   footballTeams: [['will', 'bryan'], ['vinnie', 'ben']],

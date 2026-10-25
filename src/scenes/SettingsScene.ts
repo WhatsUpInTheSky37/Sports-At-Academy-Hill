@@ -49,6 +49,9 @@ export class SettingsScene extends Phaser.Scene {
     const hm = s.derbyHitMode === 'tap' ? 'TAP HIT  (tap the ball as it arrives)' : 'CLASSIC  (aim reticle + SWING button)';
     const toggleHit = () => { Storage.updateSettings({ derbyHitMode: s.derbyHitMode === 'tap' ? 'classic' : 'tap' }); this.render(); };
     row('Home Run Derby batting', hm, toggleHit, toggleHit);
+    const ct = s.cpuTurns === 'skip' ? 'FAST-FORWARD  (a button in the game lets you watch)' : 'WATCH  (a button in the game skips ahead)';
+    const toggleCpu = () => { Storage.updateSettings({ cpuTurns: s.cpuTurns === 'skip' ? 'watch' : 'skip' }); this.render(); };
+    row('CPU turns in derby, HORSE, pool and darts', ct, toggleCpu, toggleCpu);
     const diffs = ['easy', 'normal', 'hard'] as const;
     const cd = (d: number) => { const i = diffs.indexOf(s.difficulty); Storage.updateSettings({ difficulty: diffs[(i + d + 3) % 3] }); this.render(); };
     row('Default CPU difficulty', s.difficulty.toUpperCase(), () => cd(-1), () => cd(1));

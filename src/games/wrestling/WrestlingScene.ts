@@ -494,6 +494,7 @@ export class WrestlingScene extends BaseGameScene {
       winnerSlot: winner,
       summary: `Pinned with a three-count at ${mm}:${ss}`,
       scores: ['PIN', 'PIN'].map((v, i) => (i === winner ? 'PIN (1-2-3)' : 'pinned')) as [string, string],
+      points: [secs, secs],
     }));
   }
 
