@@ -39,10 +39,7 @@ export class WrestlingScene extends BaseGameScene {
   private countText!: Phaser.GameObjects.Text;
   private pinLabel!: Phaser.GameObjects.Text;
   private barLabel!: Phaser.GameObjects.Text;
-  private introDone = false;
   private running = false;
-  private ringOutShown = false;
-  private lastCount = 0;
 
   create(): void {
     this.setupShell({ music: 'basement' });
@@ -70,7 +67,9 @@ export class WrestlingScene extends BaseGameScene {
     this.pinLabel = this.add.text(0, 0, 'PIN WINDOW', displayStyle(22, '#ffeb3b', { strokeThickness: 4 })).setOrigin(0.5).setDepth(60).setVisible(false);
     const barY = P ? H - 540 : H - 82;
     this.barLabel = this.add.text(W / 2, barY - 34, 'GRAPPLE ADVANTAGE', displayStyle(20, '#f5c518', { strokeThickness: 0 })).setOrigin(0.5).setDepth(9101);
-    if (!this.useTouch || this.match.mode === 'local') {
+    // Keyboard hint only when there are no on-screen buttons: with touch controls the text under the
+    // advantage bar runs into the button diamond (portrait and landscape alike).
+    if (!this.useTouch) {
       const hint = this.match.mode === 'local'
         ? 'P1: WASD move • F grab/pin • G shove • H punch • J kick      P2: Arrows • , grab/pin • . shove • / punch • \' kick      Pinned? HOLD any button to break free'
         : 'WASD move • F grab/pin • G shove/takedown • H punch • J kick • pinned? HOLD any button to break free';
@@ -105,7 +104,6 @@ export class WrestlingScene extends BaseGameScene {
       const wz = V.wallZ;
       ctx.fillStyle = '#1a120b';
       ctx.fillRect(0, 0, W, H);
-      const wallTop = pr.project(0, V.wallHeight, wz).sy;
       const wallBot = pr.project(0, 0, wz).sy;
       // floor everywhere below the horizon
       paintConcreteHD(ctx, 0, pr.cam.horizonY - 2, W, H - pr.cam.horizonY + 2, 31, { base: '#8b877f' });
@@ -420,7 +418,7 @@ export class WrestlingScene extends BaseGameScene {
       }
       case 'takedownFailed': { Audio.sfx('groan'); this.announce('REVERSED!', { size: P ? 44 : 54, hold: 600, color: '#80deea' }); break; }
       case 'grappleBroken': { Audio.sfx('slap'); this.announce(`${nm(other(e.loser)).toUpperCase()} BREAKS FREE!`, { size: P ? 40 : 50, hold: 700 }); break; }
-      case 'pinStart': { Audio.sfx('grab'); this.lastCount = 0; break; }
+      case 'pinStart': { Audio.sfx('grab'); break; }
       case 'count': {
         Audio.sfx('countBeep');
         this.countText.setText(String(e.n)).setVisible(true).setScale(0.4).setAlpha(1);
@@ -493,7 +491,7 @@ export class WrestlingScene extends BaseGameScene {
     this.time.delayedCall(2200, () => this.finishMatch({
       winnerSlot: winner,
       summary: `Pinned with a three-count at ${mm}:${ss}`,
-      scores: ['PIN', 'PIN'].map((v, i) => (i === winner ? 'PIN (1-2-3)' : 'pinned')) as [string, string],
+      scores: winner === 0 ? ['PIN (1-2-3)', 'pinned'] : ['pinned', 'PIN (1-2-3)'],
       points: [secs, secs],
     }));
   }

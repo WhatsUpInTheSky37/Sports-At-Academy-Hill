@@ -98,7 +98,9 @@ export function routeWaypoints(name: RouteName, start: Vec, dir: 1 | -1, cfg: Fo
   const side = start.x >= 0 ? 1 : -1;
   const half = cfg.width / 2 - 1.5;
   const cl = (x: number) => Math.max(-half, Math.min(half, x));
-  const y = (d: number) => start.y + d * dir;
+  // routes never run out the back of the end zone (a deep line of scrimmage would otherwise send a receiver past the end line)
+  const yMin = -cfg.endZone + 1, yMax = cfg.fieldLength + cfg.endZone - 1;
+  const y = (d: number) => Math.max(yMin, Math.min(yMax, start.y + d * dir));
   switch (name) {
     case 'go': return [{ x: start.x, y: y(8) }, { x: cl(start.x + side * 1), y: y(22) }];
     case 'slant': return [{ x: start.x, y: y(3) }, { x: cl(start.x - side * 7), y: y(10) }, { x: cl(start.x - side * 9), y: y(20) }];

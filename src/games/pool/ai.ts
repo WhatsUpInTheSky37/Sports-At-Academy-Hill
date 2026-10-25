@@ -2,12 +2,21 @@
  * Pool AI: evaluates candidate shots by running the real physics and picks the best one with
  * difficulty-scaled noise. It never moves balls directly.
  */
-import { DEFAULT_POOL, canPlace, pockets, simulateShot, type Ball, type PoolConfig } from './physics';
+import { DEFAULT_POOL, canPlace, pockets, simulateShot, type PoolConfig } from './physics';
 import { applyShotResult, groupOf, legalFirstContacts, onTheEight, type PoolGameState } from './rules';
 
 export interface AiShot { angle: number; power: number; calledPocket: number | null; }
 
 const POWERS = [0.32, 0.5, 0.72];
+
+/**
+ * Physics config for the AI's look-ahead simulations: coarser sub-steps (1/240 is the coarsest that still tracks
+ * the real 1/480 physics in tests/pool.test.ts) and a short time cap keep the
+ * synchronous search (up to ~36 shots, +18 for placement) cheap. The real shot still uses the game config.
+ */
+function aiSimConfig(cfg: PoolConfig): PoolConfig {
+  return { ...cfg, subStep: Math.max(cfg.subStep, 1 / 240), maxShotTime: Math.min(cfg.maxShotTime, 8) };
+}
 
 function targetsFor(state: PoolGameState): number[] {
   return legalFirstContacts(state);
@@ -76,7 +85,7 @@ export function chooseShot(state: PoolGameState, level: number, cfg: PoolConfig 
   const mustCall = onTheEight(state);
   let best: { angle: number; power: number; s: number; pocket: number | null } | null = null;
   const powers = state.breakPending ? [0.95] : POWERS;
-  const simCfg: PoolConfig = { ...cfg, subStep: 1 / 240 };
+  const simCfg = aiSimConfig(cfg);
   let budget = state.breakPending ? 1 : 36;
   for (const c of cands) {
     for (const p of powers) {
@@ -122,7 +131,7 @@ export function choosePlacement(state: PoolGameState, cfg: PoolConfig = DEFAULT_
   const ids = legalFirstContacts(state);
   const pk = pockets(cfg);
   let best: { x: number; z: number; s: number } | null = null;
-  const simCfg: PoolConfig = { ...cfg, subStep: 1 / 240 };
+  const simCfg = aiSimConfig(cfg);
   let budget = 18;
   for (const id of ids) {
     const t = state.balls.find((b) => b.id === id && b.active);

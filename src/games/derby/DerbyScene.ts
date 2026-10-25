@@ -1,7 +1,7 @@
 import Phaser from 'phaser';
 import { BaseGameScene } from '../../core/BaseGameScene';
 import { QUALITY } from '../../core/quality';
-import { GAME_H, GAME_W, THEME } from '../../core/constants';
+import { THEME } from '../../core/constants';
 import { Projector } from '../../core/projection';
 import { Audio } from '../../core/audio';
 import { Storage } from '../../core/storage';
@@ -55,7 +55,6 @@ export class DerbyScene extends BaseGameScene {
   private boardTexts: { name: Phaser.GameObjects.Text; num: Phaser.GameObjects.Text; outs: Phaser.GameObjects.Text }[] | null = null;
   private trailPts: { x: number; y: number; r: number }[] = [];
   private reticle!: Phaser.GameObjects.Container;
-  private hitZone!: Phaser.GameObjects.Container;
   private aim = { x: 0, y: 0 }; // px offsets
   private aimCenter = { x: 0, y: 0 };
   private aimRange = DERBY_VISUAL.aimRange;
@@ -116,7 +115,7 @@ export class DerbyScene extends BaseGameScene {
     // Contact point / aim centre
     const c = this.proj.project(this.contactWorld.x, this.contactWorld.y, this.contactWorld.z);
     this.aimCenter = { x: c.sx, y: c.sy };
-    this.hitZone = this.buildHitZone().setDepth(79);
+    this.buildHitZone().setDepth(79);
     this.reticle = this.buildReticle().setDepth(600);
     this.preview = this.add.graphics().setDepth(80);
     this.buildScoreboardText();
@@ -767,7 +766,8 @@ export class DerbyScene extends BaseGameScene {
     this.refreshScoreboard();
     const s = this.state;
     for (const slot of [0, 1] as const) {
-      this.setScore(slot, `${s.scores[slot]} HR  •  ${Math.min(s.outs[slot], s.outsLimit)}/${s.outsLimit} outs`);
+      // the 36 px score slot is ~320 px wide: '3 HR · 4/10' fits, the long form did not
+      this.setScore(slot, `${s.scores[slot]} HR · ${Math.min(s.outs[slot], s.outsLimit)}/${s.outsLimit}`);
     }
     this.setSub(`${this.name(s.batter)} batting  •  ${s.round > 1 ? `Tiebreak ${s.round - 1}  •  ` : ''}outs ${s.outs[s.batter]} / ${s.outsLimit}`);
   }

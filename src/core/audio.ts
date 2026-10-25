@@ -39,7 +39,8 @@ class AudioEngine {
         this.ctx = null;
       }
     }
-    if (this.ctx && this.ctx.state === 'suspended') void this.ctx.resume();
+    // iOS reports 'interrupted' after a call, Siri or the lock screen: resume from any non-running state
+    if (this.ctx && this.ctx.state !== 'running') void this.ctx.resume();
     if (this.ctx && !this.musicPlaying && Storage.settings.musicOn) this.startMusic();
   }
 
@@ -155,6 +156,8 @@ class AudioEngine {
   private scheduleMusic(): void {
     if (!this.ctx) return;
     const stepDur = this.musicStyle === 'outdoor' ? 0.22 : 0.26;
+    // a throttled background tab falls behind the clock: skip the missed notes instead of playing them all at once
+    if (this.nextNoteTime < this.ctx.currentTime) this.nextNoteTime = this.ctx.currentTime + 0.05;
     while (this.nextNoteTime < this.ctx.currentTime + 0.3) {
       this.playMusicStep(this.musicStep, this.nextNoteTime, stepDur);
       this.musicStep = (this.musicStep + 1) % 64;

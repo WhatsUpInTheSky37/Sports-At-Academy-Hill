@@ -53,14 +53,10 @@ export class DartsScene extends BaseGameScene {
   private handHome = { x: 0, y: 0 };
   private stuckDarts: Phaser.GameObjects.GameObject[] = [];
   private chalk: Phaser.GameObjects.Text[] = [];
-  private chalkTurn!: Phaser.GameObjects.Text;
   private turnTotalText!: Phaser.GameObjects.Text;
   private dartIcons: Phaser.GameObjects.Image[] = [];
   private checkoutText!: Phaser.GameObjects.Text;
-  private hitLabel!: Phaser.GameObjects.Text;
-  private aiHint!: Phaser.GameObjects.Text;
   private opponent!: CharacterSprite;
-  private aiTimer?: Phaser.Time.TimerEvent;
   private hint = '';
   private aiTween?: Phaser.Tweens.Tween;
 
@@ -95,7 +91,6 @@ export class DartsScene extends BaseGameScene {
     this.handDart = this.add.image(hx, hy, 'dart').setOrigin(0.5, 0).setScale(P ? 2.0 : 2.2).setAngle(-35).setDepth(400);
     this.buildControls();
     this.buildKeys();
-    this.hitLabel = this.add.text(0, 0, '').setVisible(false);
     this.refreshHud();
     this.setTurn(0);
     this.beginAfterHowTo(() => this.startTurn(true));
@@ -151,7 +146,6 @@ export class DartsScene extends BaseGameScene {
       const t = this.add.text(rect.centerX, rect.y + 64, '', textStyle(this.portrait ? 22 : 26, '#f0f0f0', { ...chalkFont, align: 'center', lineSpacing: 2 })).setOrigin(0.5, 0).setDepth(20);
       this.chalk.push(t);
     });
-    this.chalkTurn = this.add.text(0, 0, '', textStyle(10)).setVisible(false);
   }
 
   private buildCrosshair(): Phaser.GameObjects.Container {
@@ -181,7 +175,8 @@ export class DartsScene extends BaseGameScene {
     // Darts left panel (above the bottom row in portrait, top-right under the P2 panel in landscape)
     const dlW = 250, dlH = 96;
     const dlX = P ? W / 2 - dlW / 2 : W - 20 - dlW;
-    const dlY = P ? H - 440 : 150;
+    // landscape: sit under the CPU fast-forward button (hudBottom + 2 .. + 52), beside the board
+    const dlY = P ? H - 440 : this.hudBottom + 60;
     panel(dlX, dlY, dlW, dlH);
     this.add.text(dlX + dlW / 2, dlY + 10, 'DARTS LEFT', displayStyle(18, '#f5c518', { strokeThickness: 0 })).setOrigin(0.5, 0).setDepth(901);
     for (let i = 0; i < 3; i++) {
@@ -216,7 +211,6 @@ export class DartsScene extends BaseGameScene {
     const btn = makeButton(this, W - 30 - bw / 2, rowY + ahH / 2, 'THROW', () => { /* handled on pointerdown */ }, { width: bw, height: 110, fontSize: 44, depth: 900 });
     btn.list.forEach((o) => { if (o instanceof Phaser.GameObjects.Zone) { o.off('pointerup'); o.on('pointerdown', () => { Audio.unlock(); this.throwPressed = true; }); } });
     this.add.text(W - 30 - bw / 2, rowY + ahH + 14, this.useTouch ? 'tap' : 'SPACE / F  •  P2: ENTER / ,', textStyle(16, '#fff3c4')).setOrigin(0.5, 0).setDepth(901);
-    this.aiHint = this.add.text(0, 0, '').setVisible(false);
     // Drag to aim over the board area
     const boardZone = new Phaser.Geom.Rectangle(this.boardC.x - this.boardC.r * 1.6, this.boardC.y - this.boardC.r * 1.4, this.boardC.r * 3.2, this.boardC.r * 2.9);
     this.input.on('pointerdown', (p: Phaser.Input.Pointer) => {
@@ -293,7 +287,7 @@ export class DartsScene extends BaseGameScene {
     this.refreshHud();
     this.aiTween?.stop();
     this.aiTween = this.tweens.add({ targets: this.aim, x: tp.x, y: tp.y, duration: 700, ease: 'Sine.InOut' });
-    this.aiTimer = this.time.delayedCall(1250, () => {
+    this.time.delayedCall(1250, () => {
       if (this.phase !== 'aim' || this.finished) return;
       const sd = DARTS_CONFIG.aiScatterMm[this.ai <= 0.25 ? 0 : this.ai < 0.75 ? 1 : 2];
       this.throwDart(tp.x + gaussian(sd), tp.y + gaussian(sd));
@@ -310,20 +304,18 @@ export class DartsScene extends BaseGameScene {
     const hd = this.handDart;
     const sx = hd.x, sy = hd.y, ss = hd.scale;
     const dur = 420;
-    const start = this.time.now;
-    const ev = this.time.addEvent({
-      delay: 16, loop: true, callback: () => {
-        const p = Math.min(1, (this.time.now - start) / dur);
-        const e = p * p;
-        hd.x = sx + (tx - sx) * e;
-        hd.y = sy + (ty - sy) * e - Math.sin(p * Math.PI) * 90;
-        hd.setScale(ss + (1.0 - ss) * p);
-        hd.setAngle(-35 + 55 * p);
-        if (p >= 1) {
-          ev.remove();
-          this.landDart(tx, ty, hit);
-        }
-      },
+    // a tween (not time.now) so the flight honours tweens.timeScale during a fast-forwarded CPU turn
+    const place = (p: number) => {
+      const e = p * p;
+      hd.x = sx + (tx - sx) * e;
+      hd.y = sy + (ty - sy) * e - Math.sin(p * Math.PI) * 90;
+      hd.setScale(ss + (1.0 - ss) * p);
+      hd.setAngle(-35 + 55 * p);
+    };
+    this.tweens.addCounter({
+      from: 0, to: 1, duration: dur,
+      onUpdate: (tw) => place(Math.min(1, tw.getValue() ?? 1)),
+      onComplete: () => { place(1); this.landDart(tx, ty, hit); },
     });
   }
 

@@ -1,5 +1,5 @@
 import Phaser from 'phaser';
-import { GAME_H, GAME_W, THEME, isPortrait } from '../core/constants';
+import { GAME_W, THEME, isPortrait } from '../core/constants';
 import { Storage } from '../core/storage';
 import { Audio } from '../core/audio';
 import { makeButton, displayStyle, textStyle, makeIconButton, makePanel } from '../core/ui';
@@ -36,8 +36,8 @@ export class SettingsScene extends Phaser.Scene {
     };
     const vol = (v: number, d: number) => Phaser.Math.Clamp(Math.round((v + d) * 10) / 10, 0, 1);
     row('Sound effects', `${s.soundOn ? 'On' : 'Off'}  •  volume ${Math.round(s.soundVolume * 100)}%`,
-      () => { Storage.updateSettings({ soundVolume: vol(s.soundVolume, -0.1) }); Audio.applySettings(); Audio.sfx('click'); this.render(); },
-      () => { Storage.updateSettings({ soundVolume: vol(s.soundVolume, 0.1) }); Audio.applySettings(); Audio.sfx('click'); this.render(); },
+      () => { Storage.updateSettings({ soundVolume: vol(s.soundVolume, -0.1) }); Audio.applySettings(); this.render(); },
+      () => { Storage.updateSettings({ soundVolume: vol(s.soundVolume, 0.1) }); Audio.applySettings(); this.render(); },
       () => { Storage.updateSettings({ soundOn: !s.soundOn }); Audio.applySettings(); this.render(); });
     row('Music', `${s.musicOn ? 'On' : 'Off'}  •  volume ${Math.round(s.musicVolume * 100)}%`,
       () => { Storage.updateSettings({ musicVolume: vol(s.musicVolume, -0.1) }); Audio.applySettings(); this.render(); },

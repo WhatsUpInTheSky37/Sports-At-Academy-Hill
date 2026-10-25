@@ -114,7 +114,11 @@ export class FootballScene extends BaseGameScene {
   private holder: Athlete | null = null;
   private pass: PassFlight | null = null;
   private passTarget: Athlete | null = null;
+  /** Who threw the pass in flight (control moves from them to the catcher on a completion). */
+  private passer: Athlete | null = null;
   private passUsed = false;
+  /** Bottom edge (logical px) of the play-call strip; the portrait joystick zone starts below it. */
+  private playStripBottom = 0;
   private controlled: [Athlete | null, Athlete | null] = [null, null];
   private ctrl: [Controls | null, Controls | null] = [null, null];
   private camY = 0;
@@ -153,7 +157,7 @@ export class FootballScene extends BaseGameScene {
   create(): void {
     this.setupShell({ music: 'outdoor' });
     // the scene instance is reused on rematch: reset everything create() does not assign
-    this.phase = 'pre'; this.holder = null; this.pass = null; this.passTarget = null; this.controlled = [null, null]; this.ctrl = [null, null];
+    this.phase = 'pre'; this.holder = null; this.pass = null; this.passTarget = null; this.passer = null; this.controlled = [null, null]; this.ctrl = [null, null];
     this.charging = false; this.gesture = null; this.sideSwitch = 1; this.noticeT = 0; this.kick = null;
     const W = this.W, H = this.H, P = this.portrait;
     this.fieldTop = this.hudBottom - 30;
@@ -172,7 +176,9 @@ export class FootballScene extends BaseGameScene {
     this.dir = attackDir(this.state.offense);
     this.buildAthletes();
     this.buildUi();
-    const joyArea = P ? { x: 0, y: H * 0.6, w: W * 0.5, h: H * 0.4 } : { x: 0, y: H * 0.5, w: W * 0.38, h: H * 0.5 };
+    // portrait: the joystick zone starts below the play-call strip so a tap on a play button does not also grab the stick
+    const joyTop = P ? Math.max(H * 0.6, this.playStripBottom + 8) : H * 0.5;
+    const joyArea = P ? { x: 0, y: joyTop, w: W * 0.5, h: H - joyTop } : { x: 0, y: joyTop, w: W * 0.38, h: H - joyTop };
     this.ctrl[0] = this.makeControls(0, { labels: this.allTime || this.size === 1 ? {} : { b: 'SWITCH' }, joyArea });
     // play call by number key
     const kb = this.input.keyboard;
@@ -200,7 +206,9 @@ export class FootballScene extends BaseGameScene {
     this.allTime = this.setup.allTime && this.match.mode === 'single';
     // six or seven kids on a phone would be ~200 MB of sprite sheets at full size: build these at 3/4
     const kids = setupCharacters(this.setup);
-    const res = QUALITY.mobile && kids.length > 4 ? SHEET_RES * 0.75 : SHEET_RES;
+    // five kids on the field at the full sheet resolution is ~600 MB of canvas on a desktop and more than
+    // a phone can hold: a crowded field drops to 3/4 resolution everywhere (sprites are small on the field anyway)
+    const res = kids.length > 4 ? SHEET_RES * 0.75 : SHEET_RES;
     for (const id of kids) ensureCharacterSheet(this, id, res);
     const make = (team: Team, idx: number, ch: Character): Athlete => {
       const sprite = new CharacterSprite(this, 0, 0, ch, 1);
@@ -315,6 +323,7 @@ export class FootballScene extends BaseGameScene {
     this.playButtons = [];
     const pbW = P ? Math.min(230, (W - 100) / 4) : 230, pbH = 46, pbGap = 12;
     const stripY = my - 48 - 36 - pbH;
+    this.playStripBottom = stripY + pbH;
     const total = 4 * pbW + 3 * pbGap;
     this.playLabel = this.add.text(W / 2 - total / 2 - 10, stripY + pbH / 2, 'PLAY', displayStyle(18, '#f5c518', { strokeThickness: 4 })).setOrigin(1, 0.5).setDepth(905).setVisible(false);
     for (let i = 0; i < 4; i++) {
@@ -463,6 +472,7 @@ export class FootballScene extends BaseGameScene {
     this.holder = qb;
     this.pass = null;
     this.passTarget = null;
+    this.passer = null;
     this.passUsed = false;
     this.charging = false;
     this.chargeT = 0;
@@ -515,6 +525,7 @@ export class FootballScene extends BaseGameScene {
     const mate = recv.reduce((b, r) => (eta(r) < eta(b) ? r : b), recv[0]);
     this.pass = makePass({ x: qb.x, y: qb.y }, to, this.cfg, power);
     this.passTarget = mate;
+    this.passer = qb;
     this.passUsed = true;
     this.holder = null;
     this.charging = false;
@@ -768,6 +779,9 @@ export class FootballScene extends BaseGameScene {
           this.pass = null;
           k.stage = 'done';
           this.phase = 'dead';
+          // the kickoff is over: clear it before the HUD refresh so the sub line shows the new possession, not "KICKOFF"
+          this.kick = null;
+          this.freezeAthletes();
           this.state = touchback(this.state, recv, this.cfg);
           this.refreshHud();
           Audio.sfx('whistle');
@@ -803,6 +817,7 @@ export class FootballScene extends BaseGameScene {
   private endPlayWith(outcome: Parameters<typeof endPlay>[1]): void {
     if (this.phase !== 'live') return;
     this.phase = 'dead';
+    this.freezeAthletes();
     this.refreshPlayStrip();
     const prevOffense = this.state.offense;
     const prevScores = [...this.state.scores];
@@ -835,6 +850,11 @@ export class FootballScene extends BaseGameScene {
       if (tdTeam !== null) return this.startPat(tdTeam);
       this.setupFormation();
     });
+  }
+
+  /** The whistle has gone: everyone stops where they stand (idle animation) until the next formation. */
+  private freezeAthletes(): void {
+    for (const a of this.athletes) { a.vx = 0; a.vy = 0; }
   }
 
   private endMatch(): void {
@@ -1059,6 +1079,8 @@ export class FootballScene extends BaseGameScene {
 
     // --- offence ---
     for (const a of offense) {
+      // the all-time QB sits out kickoff and interception returns on the bench: he neither runs nor improvises a route
+      if (a === this.qbAthlete && s.returning) { a.vx = 0; a.vy = 0; continue; }
       const h = human(a);
       if (h !== null) {
         const ax = this.axisFor(h);
@@ -1162,7 +1184,7 @@ export class FootballScene extends BaseGameScene {
         this.holder = target;
         this.pass = null;
         this.graceT = 0;
-        if (this.allTime) this.controlled[0] = target;
+        this.controlCatcher(target);
         Audio.sfx('catch');
         impact(this, target.sprite.x, target.sprite.y - 60, 0x4ff0ff, 8, 700, 6);
         this.setStatus('CAUGHT! Run!');
@@ -1173,7 +1195,7 @@ export class FootballScene extends BaseGameScene {
         if (dist(pos, target) <= this.cfg.catchRadius * 1.15) {
           this.holder = target;
           this.pass = null;
-          if (this.allTime) this.controlled[0] = target;
+          this.controlCatcher(target);
           Audio.sfx('catch');
           this.setStatus('CAUGHT! Run!');
           return;
@@ -1183,6 +1205,17 @@ export class FootballScene extends BaseGameScene {
         Audio.sfx('thud');
         return this.endPlayWith({ type: 'incomplete' });
       }
+    }
+  }
+
+  /**
+   * A completed catch: whoever was steering the thrower now steers the catcher, so "CAUGHT! Run!" is
+   * addressed to the person who can actually run. The all-time QB's person (slot 0) always takes the catcher.
+   */
+  private controlCatcher(target: Athlete): void {
+    if (this.allTime) { this.controlled[0] = target; return; }
+    for (const slot of [0, 1] as const) {
+      if (this.passer && this.controlled[slot] === this.passer) this.controlled[slot] = target;
     }
   }
 

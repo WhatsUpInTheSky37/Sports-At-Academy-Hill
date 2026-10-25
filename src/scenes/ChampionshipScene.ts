@@ -9,7 +9,12 @@ import { Audio } from '../core/audio';
 import { syncOrientation, watchOrientation } from '../core/layout';
 import { menuBackdrop } from './MenuScene';
 
-interface ChampData { state: ChampionshipState; match: MatchConfig; }
+interface ChampData {
+  state: ChampionshipState;
+  match: MatchConfig;
+  /** Set once the title has been written to the records and the fanfare played: a rotation restarts this scene with the same data. */
+  recorded?: boolean;
+}
 
 /** Championship hub: standings, next event, clinch announcement and the final celebration. */
 export class ChampionshipScene extends Phaser.Scene {
@@ -66,8 +71,9 @@ export class ChampionshipScene extends Phaser.Scene {
 
     if (isComplete(state)) {
       const w = champion(state)!;
-      Storage.recordChampionship(match.players[w].character.id);
-      this.celebrate(w, match, names, state);
+      if (!data.recorded) Storage.recordChampionship(match.players[w].character.id);
+      this.celebrate(w, match, names, state, !data.recorded);
+      data.recorded = true;
       return;
     }
     const next = currentEvent(state)!;
@@ -79,6 +85,7 @@ export class ChampionshipScene extends Phaser.Scene {
     }, { width: P ? 600 : sw - 40, height: 140, fontSize: 32 }).setDepth(10);
     if (needsClinchAnnouncement(state)) {
       state = markClinchAnnounced(state);
+      data.state = state; // so a rotation does not announce the clinch again
       const who = names[state.clinchedBy!];
       const remaining = state.events.length - state.index;
       this.time.delayedCall(300, () => {
@@ -92,7 +99,7 @@ export class ChampionshipScene extends Phaser.Scene {
     }
   }
 
-  private celebrate(w: 0 | 1, match: MatchConfig, names: string[], state: ChampionshipState): void {
+  private celebrate(w: 0 | 1, match: MatchConfig, names: string[], state: ChampionshipState, fanfare = true): void {
     const W = GAME_W, H = GAME_H, P = isPortrait();
     this.add.rectangle(W / 2, H / 2, W, H, 0x0a1a0c, 0.92).setDepth(50).setInteractive();
     this.add.text(W / 2, P ? 160 : 60, 'ACADEMY HILL CHAMPION', displayStyle(P ? 40 : 46, '#ffffff')).setOrigin(0.5, 0).setDepth(51);
@@ -106,8 +113,10 @@ export class ChampionshipScene extends Phaser.Scene {
     l.sad();
     this.add.text(W / 2, cy + 150, `Final score: ${names[0]} ${state.points[0]} - ${state.points[1]} ${names[1]}`, displayStyle(34, '#ffffff')).setOrigin(0.5).setDepth(51);
     this.add.text(W / 2, cy + 200, `${names[w === 0 ? 1 : 0]}: "Good game... rematch tomorrow?"`, textStyle(26, THEME.textDim, { fontStyle: 'italic' })).setOrigin(0.5).setDepth(51);
-    Audio.sfx('fanfare');
-    this.time.addEvent({ delay: 600, repeat: 6, callback: () => confetti(this, 200 + Math.random() * (W - 400), 200 + Math.random() * 300, 40, 60) });
+    if (fanfare) {
+      Audio.sfx('fanfare');
+      this.time.addEvent({ delay: 600, repeat: 6, callback: () => confetti(this, 200 + Math.random() * (W - 400), 200 + Math.random() * 300, 40, 60) });
+    }
     const by = P ? H - 150 : H - 90;
     makeButton(this, W / 2 - 250, by, 'NEW CHAMPIONSHIP', () => this.scene.start('SetupScene', { championship: true }), { width: 460, height: 96, fontSize: 30, depth: 53 });
     makeButton(this, W / 2 + 250, by, 'MAIN MENU', () => this.scene.start('MenuScene'), { width: 460, height: 96, fontSize: 30, color: THEME.accent2, depth: 53 });

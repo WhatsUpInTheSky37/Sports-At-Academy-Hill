@@ -345,7 +345,7 @@ export function paintPennant(ctx: CanvasRenderingContext2D, x: number, y: number
 }
 
 /** Sky gradient with a soft sun. */
-export function paintSky(ctx: CanvasRenderingContext2D, w: number, h: number, horizonY: number): void {
+export function paintSky(ctx: CanvasRenderingContext2D, w: number, _h: number, horizonY: number): void {
   const g = ctx.createLinearGradient(0, 0, 0, horizonY);
   g.addColorStop(0, '#5aa7e8');
   g.addColorStop(0.7, '#9fd0f5');

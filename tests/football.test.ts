@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { FOOTBALL_CONFIG, canForwardPass, clampX, createFootball, endPlay, interception, kickDistance, kickoffReturn, outOfBoundsX, ownYardLine, patGood, pointAfter, touchback, yardsToGoal } from '../src/games/football/rules';
-import { canCatch, isTouch, leadPoint, makePass, moveToward, passPosition } from '../src/games/football/sim';
+import { canCatch, isTouch, leadPoint, makePass, moveToward, passPosition, routeWaypoints } from '../src/games/football/sim';
 
 const cfg = FOOTBALL_CONFIG;
 
@@ -161,6 +161,15 @@ describe('football sim helpers', () => {
     expect(lp.x).toBeLessThanOrEqual(cfg.width / 2);
     const r2 = { x: 0, y: 20, vx: 0, vy: 7 };
     expect(leadPoint(r2, 6).y).toBeCloseTo(26);
+  });
+
+  it('keeps route waypoints inside the end zone from a deep line of scrimmage', () => {
+    const deep = routeWaypoints('go', { x: 7, y: cfg.fieldLength - 3 }, 1, cfg);
+    for (const wp of deep) expect(wp.y).toBeLessThanOrEqual(cfg.fieldLength + cfg.endZone - 1);
+    const deepBack = routeWaypoints('post', { x: -7, y: 3 }, -1, cfg);
+    for (const wp of deepBack) expect(wp.y).toBeGreaterThanOrEqual(-cfg.endZone + 1);
+    // routes from midfield are unchanged
+    expect(routeWaypoints('go', { x: 7, y: 10 }, 1, cfg)[1].y).toBeCloseTo(32);
   });
 
   it('detects touches and catches by distance', () => {

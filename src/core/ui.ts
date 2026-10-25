@@ -63,8 +63,8 @@ export function makeButton(scene: Phaser.Scene, x: number, y: number, label: str
   zone.on('pointerup', () => {
     if (!enabled) return;
     draw(color);
-    if (opts.sound !== false) Audio.sfx('click');
     Audio.unlock();
+    if (opts.sound !== false) Audio.sfx('click');
     onClick();
   });
   c.setLabel = (s: string) => { t.setText(s); };
@@ -177,7 +177,7 @@ export function makeTextBlock(scene: Phaser.Scene, x: number, y: number, width: 
 /** Horizontal meter bar graphic helper. */
 export class Meter {
   readonly g: Phaser.GameObjects.Graphics;
-  constructor(private scene: Phaser.Scene, public x: number, public y: number, public w: number, public h: number, private opts: { bg?: number; fg?: number; depth?: number; bands?: { from: number; to: number; color: number }[]; vertical?: boolean } = {}) {
+  constructor(scene: Phaser.Scene, public x: number, public y: number, public w: number, public h: number, private opts: { bg?: number; fg?: number; depth?: number; bands?: { from: number; to: number; color: number }[]; vertical?: boolean } = {}) {
     this.g = scene.add.graphics().setDepth(opts.depth ?? 100);
     this.set(0);
   }
