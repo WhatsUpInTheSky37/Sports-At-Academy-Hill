@@ -163,7 +163,7 @@ export class ResultScene extends Phaser.Scene {
     if (entries.length) {
       const hs = this.add.text(W / 2, cy + (match.championship ? 170 : 130), 'Posting to the high-score board…', textStyle(22, THEME.textDim, { align: 'center', wordWrap: { width: pw - 80 } })).setOrigin(0.5, 0);
       postScores(match, result).then((lines) => {
-        if (!this.scene.isActive()) return;
+        if (!this.scene.isActive() || !hs.active) return; // the card may have been rebuilt for a rematch meanwhile
         const best = lines.some((l) => l.includes('#1 '));
         hs.setText(lines.join('\n')).setColor(best ? '#f5c518' : lines.some((l) => l.includes('#')) ? '#ffffff' : THEME.textDim);
         if (best) hs.setFontSize(26);

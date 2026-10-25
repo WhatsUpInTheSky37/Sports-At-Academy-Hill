@@ -432,10 +432,7 @@ export class HockeyScene extends BaseGameScene {
       this.shootHint = hint(W - 30 - (P ? 240 : 300), y, 'SHOOT', ['Click the net where you want it', 'F / SPACE: open corner'], P ? 240 : 300);
     }
     // attempt dots under each player's HUD panel
-    for (const slot of [0, 1] as const) {
-      const g = this.add.graphics().setDepth(9001);
-      this.dots.push(g);
-    }
+    for (let i = 0; i < 2; i++) this.dots.push(this.add.graphics().setDepth(9001));
     this.drawDots();
   }
 
@@ -573,6 +570,8 @@ export class HockeyScene extends BaseGameScene {
     if (this.phase !== 'skate' || this.isAI(this.state.shooter) || this.finished) return;
     if (p.y < this.fieldTop || p.y > this.fieldBottom + 60) return;
     if (this.ctrlA?.inJoyArea(p.x, p.y) && this.useTouch) return;
+    // pass-and-play with the touch player (slot 0) in goal: a tap on the net is the goalie's, not P2's shot
+    if (this.useTouch && this.humanGoalie && this.state.shooter !== 0) return;
     const aim = this.screenToGoalPlane(p.x, p.y);
     if (!aim) return;
     Audio.unlock();
@@ -731,9 +730,13 @@ export class HockeyScene extends BaseGameScene {
         }
         if (fire) this.shoot(openCorner(this.goalieX, cfg, { high: plan.high, inset: plan.inset }));
       } else {
-        const a = this.ctrlA, b = this.ctrlB;
-        if (a?.moving) { ax = a.axis.x; az = -a.axis.y; } else if (b?.moving) { ax = b.axis.x; az = -b.axis.y; }
-        if (a?.justDown('a') || b?.justDown('a')) this.shoot(openCorner(this.goalieX, cfg));
+        // With a person in goal, only the shooter's own control set may skate or shoot: the goalie's
+        // stick (A) and dive (B) keys must never double as the shooter's shot. Against a CPU goalie
+        // (single player) the human in slot 0 may use either set, as before.
+        const own = sh === 0 ? this.ctrlA : this.ctrlB;
+        const alt = this.humanGoalie ? null : sh === 0 ? this.ctrlB : this.ctrlA;
+        if (own?.moving) { ax = own.axis.x; az = -own.axis.y; } else if (alt?.moving) { ax = alt.axis.x; az = -alt.axis.y; }
+        if (own?.justDown('a') || alt?.justDown('a')) this.shoot(openCorner(this.goalieX, cfg));
       }
       if (this.phase === 'skate') {
         stepShooter(this.shooter, ax, az, dt, cfg);

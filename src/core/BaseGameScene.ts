@@ -50,7 +50,11 @@ export abstract class BaseGameScene extends Phaser.Scene {
       this.update = (t: number, d: number) => {
         const n = this.fastFactor();
         this.applySpeed(n);
-        for (let i = 0; i < n; i++) tick.call(this, t + i * d, d);
+        for (let i = 0; i < n; i++) {
+          // a tick can hand the turn back to the person or end the match: the rest of the frame then runs at 1x
+          if (i > 0 && this.fastFactor() === 1) break;
+          tick.call(this, t + i * d, d);
+        }
       };
     }
   }
@@ -73,6 +77,14 @@ export abstract class BaseGameScene extends Phaser.Scene {
     this.time.timeScale = n;
     this.tweens.timeScale = n;
     Audio.quiet = on;
+  }
+
+  /** Back to real time and audible, whatever state the fast-forward was left in (quit or restart mid CPU turn). */
+  private resetSpeed(): void {
+    this.ffOn = false;
+    this.time.timeScale = 1;
+    this.tweens.timeScale = 1;
+    Audio.quiet = false;
   }
 
   private refreshFastForwardButton(): void {
@@ -164,14 +176,16 @@ export abstract class BaseGameScene extends Phaser.Scene {
     this.scoreboardSub = this.add.text(W / 2, subY + 22, '', displayStyle(22, '#ffffff', { strokeThickness: 0, align: 'center' })).setOrigin(0.5);
     this.hud.add(this.scoreboardSub);
     this.statusText = this.add.text(W / 2, subY + 60, '', displayStyle(30, '#ffffff', { align: 'center' })).setOrigin(0.5, 0);
-    // CPU-turn fast-forward (turn-based games vs the CPU): shown while the CPU is up
+    this.hud.add(this.statusText);
+    this.hudBottom = subY + 100;
+    // CPU-turn fast-forward (turn-based games vs the CPU): shown while the CPU is up, just under the HUD
     this.ffWanted = Storage.settings.cpuTurns !== 'watch';
-    this.turnSlot = null; this.ffOn = false;
+    this.turnSlot = null;
+    this.resetSpeed();
+    this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => this.resetSpeed());
     this.ffButton = makeButton(this, W - 30 - 170, this.hudBottom + 2, '⏩ SKIP CPU TURN', () => { this.ffWanted = !this.ffWanted; this.refreshFastForwardButton(); if (this.fastFactor() === 1) this.applySpeed(1); }, { width: 340, height: 50, fontSize: 19, color: 0x37474f, textColor: '#ffffff' });
     this.ffButton.setDepth(9300).setVisible(false);
     this.hud.add(this.ffButton);
-    this.hud.add(this.statusText);
-    this.hudBottom = subY + 100;
     // help / pause buttons flank the title plate
     const bx = plateW / 2 + 46;
     this.hud.add(makeIconButton(this, W / 2 - bx, 50, '?', () => this.showHelp(), { radius: 32 }));
@@ -257,7 +271,7 @@ export abstract class BaseGameScene extends Phaser.Scene {
   protected finishMatch(result: MatchResult): void {
     if (this.finished) return;
     this.finished = true;
-    this.applySpeed(1);
+    this.resetSpeed();
     this.refreshFastForwardButton();
     recordResult(this.match, result);
     Audio.sfx('win');
@@ -274,10 +288,11 @@ export abstract class BaseGameScene extends Phaser.Scene {
   }
 }
 
-/** Remove cached backdrop textures (keys containing "-bg-"), optionally keeping one game's. */
+/** Remove cached backdrop textures (keys containing "-bg-"), optionally keeping one game's. The menu's own
+ *  backdrop is small and shown between every match, so it always stays. */
 export function purgeBackdrops(scene: Phaser.Scene, keepPrefix?: string): void {
   for (const key of scene.textures.getTextureKeys()) {
-    if (!key.includes('-bg-')) continue;
+    if (!key.includes('-bg-') || key.startsWith('menu-bg')) continue;
     if (keepPrefix && key.startsWith(keepPrefix)) continue;
     scene.textures.remove(key);
   }

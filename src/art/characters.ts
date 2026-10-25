@@ -452,7 +452,7 @@ function hairGradient(ctx: CanvasRenderingContext2D, hx: number, hy: number, r: 
   return g;
 }
 
-function hairStrands(ctx: CanvasRenderingContext2D, hx: number, hy: number, r: number, ch: Character, count: number, yBias: number): void {
+function hairStrands(ctx: CanvasRenderingContext2D, hx: number, hy: number, r: number, count: number, yBias: number): void {
   ctx.lineCap = 'round';
   for (let i = 0; i < count; i++) {
     const t = (i + 0.5) / count;
@@ -557,7 +557,7 @@ function drawBackHair(ctx: CanvasRenderingContext2D, hx: number, hy: number, r: 
     ctx.closePath();
     ctx.fill();
     ctx.stroke();
-    hairStrands(ctx, hx, hy, r, ch, 8, -8);
+    hairStrands(ctx, hx, hy, r, 8, -8);
   } else if (ch.hairStyle === 'curly') {
     for (let i = 0; i <= 10; i++) {
       const ang = Math.PI * 0.95 + (i / 10) * Math.PI * 1.1;
@@ -582,7 +582,7 @@ function drawBackHair(ctx: CanvasRenderingContext2D, hx: number, hy: number, r: 
   } else if (ch.hairStyle === 'cap') {
     drawCap(ctx, hx, hy, r, true);
   } else {
-    hairStrands(ctx, hx, hy, r, ch, 9, -4);
+    hairStrands(ctx, hx, hy, r, 9, -4);
     // crown swirl
     ctx.strokeStyle = 'rgba(0,0,0,0.25)';
     ctx.lineWidth = 1.5;
@@ -816,7 +816,7 @@ function drawHair(ctx: CanvasRenderingContext2D, hx: number, hy: number, r: numb
         ctx.closePath();
         ctx.fill();
       }
-      hairStrands(ctx, hx, hy, r, ch, 7, -6);
+      hairStrands(ctx, hx, hy, r, 7, -6);
       ctx.strokeStyle = 'rgba(255,255,255,0.3)';
       ctx.lineWidth = 3;
       ctx.beginPath(); ctx.arc(hx, hy - 4, r - 7, Math.PI * 1.2, Math.PI * 1.5); ctx.stroke();
