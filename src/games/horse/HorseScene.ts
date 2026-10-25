@@ -62,14 +62,12 @@ export class HorseScene extends BaseGameScene {
   private powerLabel!: Phaser.GameObjects.Text;
   private timingLabel!: Phaser.GameObjects.Text;
   private powerText!: Phaser.GameObjects.Text;
-  private hintText!: Phaser.GameObjects.Text;
   private meterHeld = false;
   private aiTarget: { power: number; aimX: number } | null = null;
   private aiChargeT = 0;
   private flick: { x0: number; y0: number; x: number; y: number; id: number } | null = null;
   private shot: ShotResult | null = null;
   private flightT = 0;
-  private flightStart = 0;
   private eventIdx = 0;
   private keys: Record<string, Phaser.Input.Keyboard.Key> = {};
   private fieldTop = 0;
@@ -81,7 +79,7 @@ export class HorseScene extends BaseGameScene {
 
   create(): void {
     this.setupShell({ music: 'outdoor' });
-    const W = this.W, H = this.H, P = this.portrait;
+    const H = this.H, P = this.portrait;
     this.fieldTop = this.hudBottom - 40;
     this.fieldBottom = P ? H - 330 : H - 170;
     this.horizon = this.fieldTop + (this.fieldBottom - this.fieldTop) * 0.30;
@@ -111,6 +109,10 @@ export class HorseScene extends BaseGameScene {
     this.buildControls();
     this.layoutCourt();
     this.refreshHud();
+    // a pause mid-hold swallows the SHOOT key-up: on resume cancel the charge instead of firing at max
+    const onResume = () => this.cancelHeldShot();
+    this.events.on(Phaser.Scenes.Events.RESUME, onResume);
+    this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => this.events.off(Phaser.Scenes.Events.RESUME, onResume));
     this.beginAfterHowTo(() => this.startTurn());
   }
 
@@ -577,7 +579,7 @@ export class HorseScene extends BaseGameScene {
     strip.lineStyle(3, THEME.accent, 0.8);
     strip.strokeRoundedRect(mx - 20, my - 50, mw + 40, 120, 16);
     this.spotTitle = this.add.text(mx + mw / 2, my - 38, 'SPOT', displayStyle(18, '#f5c518', { strokeThickness: 0 })).setOrigin(0.5, 0).setDepth(901);
-    this.hintText = this.add.text(mx + mw / 2, my - 10, this.useTouch
+    this.add.text(mx + mw / 2, my - 10, this.useTouch
       ? 'Tap a chalk circle to pick a spot, then\nput a finger on the court and FLICK UP to shoot'
       : 'Arrows / WASD pick a spot. Flick up with the mouse to shoot,\nor hold SPACE / F and release in the gold band (A / D aim)', textStyle(P ? 16 : 17, '#ffffff', { align: 'center' })).setOrigin(0.5, 0).setDepth(901);
     this.timingLabel = this.add.text(mx + mw / 2, my + 46, '', displayStyle(22, '#ffffff')).setOrigin(0.5).setDepth(902);
@@ -751,6 +753,19 @@ export class HorseScene extends BaseGameScene {
     this.fire(this.power, this.aim.x, true);
   }
 
+  /** Pausing mid-hold swallows the key-up; on resume drop the charge instead of auto-firing at max. */
+  private cancelHeldShot(): void {
+    if (this.phase !== 'meter' || !this.meterHeld) return;
+    this.meterHeld = false;
+    this.power = 0;
+    this.phase = 'ready';
+    this.powerBar.set(0);
+    this.powerLabel.setText('');
+    this.timingLabel.setText('');
+    this.shooter.setPose('back-shoot0');
+    this.placeHeldBall();
+  }
+
   /** Let it fly. `noisy` adds the distance-based wobble every real shot has (the CPU's error is already in its target). */
   private fire(powerFactor: number, aimX: number, noisy: boolean): void {
     const spot = SPOTS[this.spotIndex];
@@ -766,7 +781,6 @@ export class HorseScene extends BaseGameScene {
     const result = simulateShotPower(spot, pf, ax, this.aim.y, this.cfg);
     this.shot = result;
     this.flightT = 0;
-    this.flightStart = this.time.now;
     this.eventIdx = 0;
     this.phase = 'flight';
     this.flick = null;
@@ -888,7 +902,8 @@ export class HorseScene extends BaseGameScene {
     }
     this.drawPreview();
     if (this.phase === 'flight' && this.shot) {
-      this.flightT = (this.time.now - this.flightStart) / 1000;
+      // advanced by the (scaled) frame delta so a fast-forwarded CPU turn plays the flight faster too
+      this.flightT += dt;
       const pts = this.shot.points;
       const idx = Math.max(0, Math.min(pts.length - 1, Math.floor(this.flightT * 120)));
       const p = pts[idx];

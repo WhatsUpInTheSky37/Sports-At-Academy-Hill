@@ -5,7 +5,7 @@ import { Projector } from '../../core/projection';
 import { Audio } from '../../core/audio';
 import { Meter, displayStyle, textStyle, makeButton, makePanel, makeDim, confetti } from '../../core/ui';
 import { CharacterSprite } from '../../art/characters';
-import { createCanvas, paintLamp, roundRect, shade, rng } from '../../art/environment';
+import { createCanvas, paintLamp } from '../../art/environment';
 import { paintBraidedRug, paintCinderWallHD, paintConcreteHD, paintCouchHD, paintJoists, paintPennantHD, paintPipes, paintPosterHD, paintRoomGrade, paintShelfHD, paintStairsHD, paintWasherDryer } from './basementArt';
 import { DEFAULT_POOL, NO_SPIN, PoolSim, aimGuide, canPlace, headSpot, pockets, type Ball, type PoolConfig, type Spin } from './physics';
 import { applyShotResult, callPocket, chooseGroup, createGame, groupOf, needsCall, onTheEight, placeCueBall, remaining, resolveIllegalBreak, POCKET_NAMES, type PoolGameState } from './rules';
@@ -66,7 +66,6 @@ export class PoolScene extends BaseGameScene {
   private opponentSprite?: CharacterSprite;
   private shooterSprite?: CharacterSprite;
   private groupIcons: Phaser.GameObjects.Image[] = [];
-  private aiAimTween?: Phaser.Tweens.Tween;
   private pullback = 0;
   private dragging = false;
   private dragPower = false;
@@ -82,7 +81,7 @@ export class PoolScene extends BaseGameScene {
 
   create(): void {
     this.setupShell({ music: 'basement' });
-    const W = this.W, H = this.H, P = this.portrait;
+    const H = this.H, P = this.portrait;
     this.fieldTop = this.hudBottom + (P ? 30 : 16);
     this.fieldBottom = P ? H - 290 : H - 165;
     this.buildCamera();
@@ -412,6 +411,10 @@ export class PoolScene extends BaseGameScene {
     this.add.text(bx, barY + 66, this.useTouch ? 'tap' : 'SPACE / F  •  P2: ENTER / ,', textStyle(17, '#fff3c4')).setOrigin(0.5).setDepth(901);
     // Pointer handling on the table area
     this.input.on('pointerdown', (p: Phaser.Input.Pointer) => {
+      // a tap on one of the action buttons is the button's, never a placement / pocket call / aim
+      for (const b of [this.shootBtn, this.callBtn, this.doneBtn]) {
+        if (b.visible && b.getBounds().contains(p.x, p.y)) return;
+      }
       if (p.y < this.fieldTop - 30 || p.y > this.fieldBottom + 40 || this.dragPower || this.uiDrag !== 'none') return;
       if (!this.isHumanTurn()) return;
       if (this.phase === 'placing') { this.dragging = true; this.tryPlace(p); return; }
@@ -569,7 +572,7 @@ export class PoolScene extends BaseGameScene {
       while (delta > Math.PI) delta -= Math.PI * 2;
       while (delta < -Math.PI) delta += Math.PI * 2;
       this.setPower(shot.power);
-      this.aiAimTween = this.tweens.addCounter({
+      this.tweens.addCounter({
         from: 0, to: 1, duration: 650, ease: 'Sine.InOut',
         onUpdate: (tw) => { this.aimAngle = start + delta * (tw.getValue() ?? 1); },
         onComplete: () => { this.aimAngle = shot.angle; this.time.delayedCall(250, () => this.shoot()); },
@@ -693,7 +696,10 @@ export class PoolScene extends BaseGameScene {
     const w = this.state.winner!;
     const l = w === 0 ? 1 : 0;
     const left = (slot: 0 | 1) => { const g = this.state.groups[slot]; return g ? `${remaining(this.state.balls, g)} ${g === 'solid' ? 'solids' : 'stripes'} left` : 'open table'; };
-    const leftN = (slot: 0 | 1) => { const g = this.state.groups[slot]; return g ? remaining(this.state.balls, g) : 7; };
+    const leftN = (slot: 0 | 1) => {
+      const g = this.state.groups[slot];
+      return g ? remaining(this.state.balls, g) : Math.max(remaining(this.state.balls, 'solid'), remaining(this.state.balls, 'stripe'));
+    };
     // the board counts how many of the loser's balls were still up when the 8 dropped
     this.finishMatch({
       winnerSlot: w,
@@ -737,7 +743,8 @@ export class PoolScene extends BaseGameScene {
       }
       const left = remaining(s.balls, g);
       const onEight = left === 0;
-      this.setScore(slot, `${g === 'solid' ? 'SOLIDS' : 'STRIPES'} • ${onEight ? 'on the 8' : `${left} left`}`);
+      // the 36 px score slot is ~320 px wide: keep it to one word, the detail lives in the sub line
+      this.setScore(slot, onEight ? '8-BALL' : g === 'solid' ? 'SOLIDS' : 'STRIPES');
       const rect = this.panelRect(slot);
       const ids = s.balls.filter((b) => b.active && groupOf(b.id) === g).map((b) => b.id);
       const list = onEight ? [8] : ids;
@@ -748,6 +755,8 @@ export class PoolScene extends BaseGameScene {
       });
     }
     let sub = `${this.name(s.turn)}'s shot`;
+    const tg = s.groups[s.turn];
+    if (tg && !onTheEight(s)) sub += ` — ${remaining(s.balls, tg)} ${tg === 'solid' ? 'solids' : 'stripes'} left`;
     if (s.breakPending) sub += ' — BREAK';
     else if (s.ballInHand) sub += ' — ball in hand';
     else if (!s.open && onTheEight(s)) sub += ` — 8 ball, called: ${s.calledPocket === null ? '(tap a pocket)' : POCKET_NAMES[s.calledPocket]}`;

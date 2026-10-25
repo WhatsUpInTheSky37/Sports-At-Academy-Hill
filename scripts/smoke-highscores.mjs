@@ -27,11 +27,13 @@ const start = async (key, mode = 'single') => {
 // --- 1. darts: wait for the CPU's turn and check the fast-forward is on
 await start('DartsScene');
 // throw three darts quickly as the person (F = a button) so the CPU turn arrives
-for (let i = 0; i < 3; i++) { await page.keyboard.press('f'); await page.waitForTimeout(700); await page.keyboard.press('f'); await page.waitForTimeout(900); }
+// the CPU turn is over in about a second at 6x, so poll tightly while the person's darts go in
+const probe = () => page.evaluate(() => { const s = window.__game.scene.getScene('DartsScene'); return { factor: s.fastFactor(), turnSlot: s.turnSlot, btn: s.ffButton?.visible, label: s.ffButton?.list?.find?.((o) => o.text)?.text, ts: s.time.timeScale }; });
 let ff = null;
-for (let i = 0; i < 40 && !(ff && ff.factor > 1); i++) {
-  await page.waitForTimeout(250);
-  ff = await page.evaluate(() => { const s = window.__game.scene.getScene('DartsScene'); return { factor: s.fastFactor(), turnSlot: s.turnSlot, btn: s.ffButton?.visible, label: s.ffButton?.list?.find?.((o) => o.text)?.text, ts: s.time.timeScale }; });
+for (let i = 0; i < 6 && !(ff && ff.factor > 1); i++) {
+  await page.keyboard.press('f');
+  for (let j = 0; j < 30 && !(ff && ff.factor > 1); j++) { await page.waitForTimeout(50); const f = await probe(); if (f.factor > 1) ff = f; }
+  if (!(ff && ff.factor > 1)) ff = await probe();
 }
 notes.push('darts cpu turn: ' + JSON.stringify(ff));
 await page.screenshot({ path: `${out}/ff-darts.png` });
