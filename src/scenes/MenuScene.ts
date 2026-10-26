@@ -19,7 +19,6 @@ export class MenuScene extends Phaser.Scene {
     watchOrientation(this);
     purgeBackdrops(this);
     purgeCharacterSheets(this, [Storage.settings.p1, Storage.settings.p2]);
-    Audio.setMusicStyle('outdoor');
     const W = GAME_W, H = GAME_H, P = isPortrait();
     this.buildBackground();
     const hasLogo = this.textures.exists('logo');
@@ -72,10 +71,10 @@ export class MenuScene extends Phaser.Scene {
     makeButton(this, W / 2, by, 'RECORDS', () => this.scene.start('RecordsScene'), { width: bw, height: 86, fontSize: P ? 24 : 28, color: 0x4fc3f7 });
     makeButton(this, W / 2 + (bw + 20), by, 'HIGH SCORES', () => this.scene.start('HighScoresScene'), { width: bw, height: 86, fontSize: P ? 24 : 28, color: 0xf5c518 });
     const r = Storage.records;
-    this.add.text(W / 2, by + 60, `Matches played: ${r.matchesPlayed}   •   Sound ${s.soundOn ? 'on' : 'off'}, music ${s.musicOn ? 'on' : 'off'}`, displayStyle(22, '#fff3c4', { strokeThickness: 3 })).setOrigin(0.5, 0);
+    this.add.text(W / 2, by + 60, `Matches played: ${r.matchesPlayed}   •   Sound ${s.soundOn ? 'on' : 'off'}`, displayStyle(22, '#fff3c4', { strokeThickness: 3 })).setOrigin(0.5, 0);
     this.add.text(W / 2, H - 20, 'Plays in portrait or landscape. Local two-player wrestling, hockey and football need a keyboard.', textStyle(20, '#fff3c4', { align: 'center', wordWrap: { width: W - 100 } })).setOrigin(0.5, 1);
-    makeIconButton(this, W - 60, H - 70, s.musicOn ? '♪' : '✕', () => {
-      Storage.updateSettings({ musicOn: !Storage.settings.musicOn });
+    makeIconButton(this, W - 60, H - 70, s.soundOn ? '🔊' : '🔇', () => {
+      Storage.updateSettings({ soundOn: !Storage.settings.soundOn });
       Audio.applySettings();
       this.scene.restart();
     }, { radius: 36 });

@@ -82,7 +82,7 @@ export class DerbyScene extends BaseGameScene {
   private fieldBottom = 0;
 
   create(): void {
-    this.setupShell({ music: 'outdoor' });
+    this.setupShell();
     const W = this.W, H = this.H, P = this.portrait;
     this.hitMode = Storage.settings.derbyHitMode === 'classic' ? 'classic' : 'tap';
     this.fieldTop = this.hudBottom - 40;

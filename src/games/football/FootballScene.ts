@@ -155,7 +155,7 @@ export class FootballScene extends BaseGameScene {
   private noticeT = 0;
 
   create(): void {
-    this.setupShell({ music: 'outdoor' });
+    this.setupShell();
     // the scene instance is reused on rematch: reset everything create() does not assign
     this.phase = 'pre'; this.holder = null; this.pass = null; this.passTarget = null; this.passer = null; this.controlled = [null, null]; this.ctrl = [null, null];
     this.charging = false; this.gesture = null; this.sideSwitch = 1; this.noticeT = 0; this.kick = null;

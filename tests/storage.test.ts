@@ -17,10 +17,10 @@ describe('storage', () => {
 
   it('provides defaults and persists settings', () => {
     expect(Storage.settings.difficulty).toBe('normal');
-    Storage.updateSettings({ difficulty: 'hard', musicOn: false });
+    Storage.updateSettings({ difficulty: 'hard', soundOn: false });
     Storage._reset();
     expect(Storage.settings.difficulty).toBe('hard');
-    expect(Storage.settings.musicOn).toBe(false);
+    expect(Storage.settings.soundOn).toBe(false);
   });
 
   it('records wins and losses per game and character, and the vs-CPU tally', () => {

@@ -42,7 +42,7 @@ export class WrestlingScene extends BaseGameScene {
   private running = false;
 
   create(): void {
-    this.setupShell({ music: 'basement' });
+    this.setupShell();
     const W = this.W, H = this.H, P = this.portrait;
     const horizon = this.hudBottom + (P ? 60 : 36);
     this.proj = new Projector(P

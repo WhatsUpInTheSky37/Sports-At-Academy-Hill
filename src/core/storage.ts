@@ -4,9 +4,7 @@ import type { Difficulty, GameId, Mode } from './constants';
 
 export interface Settings {
   soundOn: boolean;
-  musicOn: boolean;
   soundVolume: number; // 0..1
-  musicVolume: number; // 0..1
   difficulty: Difficulty;
   mode: Mode;
   p1: CharacterId;
@@ -41,9 +39,7 @@ const KEY = 'sports-at-academy-hill-v1';
 
 export const DEFAULT_SETTINGS: Settings = {
   soundOn: true,
-  musicOn: true,
   soundVolume: 0.8,
-  musicVolume: 0.5,
   difficulty: 'normal',
   mode: 'single',
   p1: 'will',

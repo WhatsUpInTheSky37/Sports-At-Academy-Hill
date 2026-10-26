@@ -118,14 +118,13 @@ export abstract class BaseGameScene extends Phaser.Scene {
   panelRect(slot: 0 | 1): Phaser.Geom.Rectangle { return this.panelRects[slot]; }
 
   /** Subclasses call this at the start of create(). */
-  protected setupShell(opts: { music?: 'outdoor' | 'basement' } = {}): void {
+  protected setupShell(): void {
     syncOrientation(this);
     // backdrops and pose sheets are big canvases; drop the ones this match does not need so memory never piles up
     purgeBackdrops(this, `${this.gameId}-bg`);
     purgeCharacterSheets(this, [this.players[0].character.id, this.players[1].character.id]);
     buildCharacterTextures(this);
     buildEquipmentTextures(this);
-    Audio.setMusicStyle(opts.music ?? 'outdoor');
     this.hud = this.add.container(0, 0).setDepth(9000);
     const info = GAMES[this.gameId];
     const W = this.W;

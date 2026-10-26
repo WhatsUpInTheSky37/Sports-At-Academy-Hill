@@ -48,7 +48,7 @@ The smoke and playthrough scripts open `?renderer=canvas`, a URL switch that for
 - **Modes:** 1 player vs CPU (Easy / Normal / Hard) or 2 players on one device. Derby, HORSE, billiards, hockey and darts are pass-and-play (touch or keyboard). Wrestling and football are simultaneous, so local two-player needs a physical keyboard; the setup screen says so.
 - **Characters:** pick any two of Will, Vinnie, Bryan and Ben for either side.
 - **Touch:** every game has on-screen controls in single player (joystick + buttons, or drag-to-aim + big action buttons).
-- **Pause (II / Esc):** resume, restart, How to Play, sound and music toggles, main menu. Results screen: rematch or menu.
+- **Pause (II / Esc):** resume, restart, How to Play, sound toggle, main menu. Results screen: rematch or menu.
 - **Championship:** all seven events in order, ending with darts. One point per event. Reaching four wins is announced as a clinch, but all seven are played for the final score, then the champion gets the homemade belt.
 - **Saved data:** settings and win/loss records (per game per character, vs-CPU tally per difficulty, championships) live in `localStorage`. Reset from Settings.
 
@@ -85,7 +85,7 @@ src/core/               shared systems
   constants.ts          logical size, game catalogue (titles, how-to text, controls), theme
   layout.ts             orientation handling (landscape 1920x1080 / portrait 1080x1920)
   storage.ts            settings + records in localStorage
-  audio.ts              procedural WebAudio sound effects and music
+  audio.ts              procedural WebAudio sound effects (no background music)
   input.ts              keyboard layouts + on-screen joystick/buttons
   ui.ts                 buttons, panels, meters, announcements, confetti
   projection.ts         pseudo-3D camera used by the perspective scenes
@@ -103,7 +103,7 @@ public/logo.png         optional: the game logo for the title screen
 
 ## Assets and licenses
 
-Everything in the game is generated at runtime: characters, balls, sticks, tables, rooms and yards are drawn procedurally onto canvases, and every sound effect and the music loop is synthesized with WebAudio. There are no third-party art or audio assets and no runtime network requests. The only dependency shipped to the browser is Phaser 3 (MIT).
+Everything in the game is generated at runtime: characters, balls, sticks, tables, rooms and yards are drawn procedurally onto canvases, and every sound effect is synthesized with WebAudio; there is no background music. There are no third-party art or audio assets and no runtime network requests. The only dependency shipped to the browser is Phaser 3 (MIT).
 
 If you drop `logo.png` into `public/`, the title screen uses it; otherwise the title is drawn in code.
 

@@ -80,7 +80,7 @@ export class PoolScene extends BaseGameScene {
   private lastTurnSlot: 0 | 1 | null = null;
 
   create(): void {
-    this.setupShell({ music: 'basement' });
+    this.setupShell();
     const H = this.H, P = this.portrait;
     this.fieldTop = this.hudBottom + (P ? 30 : 16);
     this.fieldBottom = P ? H - 290 : H - 165;

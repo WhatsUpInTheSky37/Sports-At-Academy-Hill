@@ -84,7 +84,7 @@ export class HockeyScene extends BaseGameScene {
   private fieldBottom = 0;
 
   create(): void {
-    this.setupShell({ music: 'outdoor' });
+    this.setupShell();
     // the scene instance is reused on rematch: reset everything that create() does not assign
     this.phase = 'intro'; this.zoom = 1; this.shot = null; this.after = null; this.aiPlan = null; this.dots = []; this.goalieLunge = null; this.goaliePose = 'goalie';
     const W = this.W, H = this.H, P = this.portrait;

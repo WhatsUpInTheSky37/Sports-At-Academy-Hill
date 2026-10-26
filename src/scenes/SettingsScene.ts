@@ -39,10 +39,6 @@ export class SettingsScene extends Phaser.Scene {
       () => { Storage.updateSettings({ soundVolume: vol(s.soundVolume, -0.1) }); Audio.applySettings(); this.render(); },
       () => { Storage.updateSettings({ soundVolume: vol(s.soundVolume, 0.1) }); Audio.applySettings(); this.render(); },
       () => { Storage.updateSettings({ soundOn: !s.soundOn }); Audio.applySettings(); this.render(); });
-    row('Music', `${s.musicOn ? 'On' : 'Off'}  •  volume ${Math.round(s.musicVolume * 100)}%`,
-      () => { Storage.updateSettings({ musicVolume: vol(s.musicVolume, -0.1) }); Audio.applySettings(); this.render(); },
-      () => { Storage.updateSettings({ musicVolume: vol(s.musicVolume, 0.1) }); Audio.applySettings(); this.render(); },
-      () => { Storage.updateSettings({ musicOn: !s.musicOn }); Audio.applySettings(); this.render(); });
     const touchOpts: Array<'auto' | 'on' | 'off'> = ['auto', 'on', 'off'];
     const cycle = (d: number) => { const i = touchOpts.indexOf(s.touch); Storage.updateSettings({ touch: touchOpts[(i + d + 3) % 3] }); this.render(); };
     row('On-screen touch controls', `${s.touch.toUpperCase()}  (auto = shown on touch screens)`, () => cycle(-1), () => cycle(1));
