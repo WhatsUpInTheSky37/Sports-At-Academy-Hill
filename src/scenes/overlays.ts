@@ -95,13 +95,6 @@ export class PauseScene extends Phaser.Scene {
       Audio.applySettings();
       sound.setLabel(`SOUND: ${v ? 'ON' : 'OFF'}`);
     }, { width: bw, height: 84, fontSize: 28, color: 0x8bc34a });
-    p = pos(5);
-    const music = makeButton(this, p[0], p[1], `MUSIC: ${s.musicOn ? 'ON' : 'OFF'}`, () => {
-      const v = !Storage.settings.musicOn;
-      Storage.updateSettings({ musicOn: v });
-      Audio.applySettings();
-      music.setLabel(`MUSIC: ${v ? 'ON' : 'OFF'}`);
-    }, { width: bw, height: 84, fontSize: 28, color: 0x8bc34a });
     const info = GAMES[data.match.gameId];
     const ctrl = data.match.mode === 'local'
       ? `P1: ${info.keyboardP1.join(' • ')}\nP2: ${info.keyboardP2.join(' • ')}`

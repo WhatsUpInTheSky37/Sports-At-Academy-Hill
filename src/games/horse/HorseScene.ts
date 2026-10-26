@@ -78,7 +78,7 @@ export class HorseScene extends BaseGameScene {
   private shootBtn?: Phaser.GameObjects.Container;
 
   create(): void {
-    this.setupShell({ music: 'outdoor' });
+    this.setupShell();
     const H = this.H, P = this.portrait;
     this.fieldTop = this.hudBottom - 40;
     this.fieldBottom = P ? H - 330 : H - 170;

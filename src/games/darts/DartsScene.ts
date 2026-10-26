@@ -61,7 +61,7 @@ export class DartsScene extends BaseGameScene {
   private aiTween?: Phaser.Tweens.Tween;
 
   create(): void {
-    this.setupShell({ music: 'basement' });
+    this.setupShell();
     const W = this.W, H = this.H, P = this.portrait;
     this.state = createGame(DEFAULT_DARTS_RULES, 0);
     this.phase = 'idle';

@@ -1,8 +1,8 @@
 import { Storage } from './storage';
 
 /**
- * Procedural audio: every sound effect and the music loop are synthesized with WebAudio,
- * so the game ships with no third-party audio assets.
+ * Procedural audio: every sound effect is synthesized with WebAudio, so the game ships with no
+ * third-party audio assets. There is no background music.
  */
 type SfxName =
   | 'click' | 'back' | 'swing' | 'hit' | 'homerun' | 'out' | 'bounce' | 'swish' | 'rim' | 'backboard'
@@ -13,12 +13,6 @@ class AudioEngine {
   private ctx: AudioContext | null = null;
   private master!: GainNode;
   private sfxGain!: GainNode;
-  private musicGain!: GainNode;
-  private musicTimer: number | null = null;
-  private musicStep = 0;
-  private nextNoteTime = 0;
-  private musicStyle: 'outdoor' | 'basement' = 'outdoor';
-  private musicPlaying = false;
   /** Set while a CPU turn is fast-forwarded: effects would just chatter. */
   quiet = false;
 
@@ -32,8 +26,6 @@ class AudioEngine {
         this.master.connect(this.ctx.destination);
         this.sfxGain = this.ctx.createGain();
         this.sfxGain.connect(this.master);
-        this.musicGain = this.ctx.createGain();
-        this.musicGain.connect(this.master);
         this.applySettings();
       } catch {
         this.ctx = null;
@@ -41,20 +33,12 @@ class AudioEngine {
     }
     // iOS reports 'interrupted' after a call, Siri or the lock screen: resume from any non-running state
     if (this.ctx && this.ctx.state !== 'running') void this.ctx.resume();
-    if (this.ctx && !this.musicPlaying && Storage.settings.musicOn) this.startMusic();
   }
 
   applySettings(): void {
     if (!this.ctx) return;
     const s = Storage.settings;
     this.sfxGain.gain.value = s.soundOn ? s.soundVolume * 0.9 : 0;
-    this.musicGain.gain.value = s.musicOn ? s.musicVolume * 0.35 : 0;
-    if (s.musicOn && !this.musicPlaying) this.startMusic();
-    if (!s.musicOn && this.musicPlaying) this.stopMusic();
-  }
-
-  setMusicStyle(style: 'outdoor' | 'basement'): void {
-    this.musicStyle = style;
   }
 
   private tone(freq: number, dur: number, opts: { type?: OscillatorType; gain?: number; attack?: number; decay?: number; slide?: number; dest?: GainNode; when?: number } = {}): void {
@@ -135,56 +119,6 @@ class AudioEngine {
       case 'goalHorn': this.tone(196, 0.8, { type: 'sawtooth', gain: 0.25 }); this.tone(247, 0.8, { type: 'sawtooth', gain: 0.2 }); this.tone(294, 0.8, { type: 'square', gain: 0.12 }); break;
       case 'win': [0, 0.12, 0.24, 0.36, 0.6].forEach((d, i) => this.tone([523, 659, 784, 1047, 1319][i], 0.3, { type: 'triangle', gain: 0.25, when: t + d })); this.noise(1.5, { gain: 0.15, filter: 1800, when: t + 0.3 }); break;
       case 'fanfare': [0, 0.15, 0.3, 0.45, 0.6, 0.9].forEach((d, i) => this.tone([392, 392, 392, 523, 659, 784][i], 0.22, { type: 'square', gain: 0.18, when: t + d })); [0, 0.15, 0.3, 0.45, 0.6, 0.9].forEach((d, i) => this.tone([196, 196, 196, 262, 330, 392][i], 0.22, { type: 'triangle', gain: 0.2, when: t + d })); break;
-    }
-  }
-
-  // ---- Music: a gentle looping lo-fi backyard tune, scheduled ahead of time ----
-  private startMusic(): void {
-    if (!this.ctx || this.musicPlaying) return;
-    this.musicPlaying = true;
-    this.musicStep = 0;
-    this.nextNoteTime = this.ctx.currentTime + 0.1;
-    this.musicTimer = window.setInterval(() => this.scheduleMusic(), 90);
-  }
-
-  private stopMusic(): void {
-    if (this.musicTimer !== null) window.clearInterval(this.musicTimer);
-    this.musicTimer = null;
-    this.musicPlaying = false;
-  }
-
-  private scheduleMusic(): void {
-    if (!this.ctx) return;
-    const stepDur = this.musicStyle === 'outdoor' ? 0.22 : 0.26;
-    // a throttled background tab falls behind the clock: skip the missed notes instead of playing them all at once
-    if (this.nextNoteTime < this.ctx.currentTime) this.nextNoteTime = this.ctx.currentTime + 0.05;
-    while (this.nextNoteTime < this.ctx.currentTime + 0.3) {
-      this.playMusicStep(this.musicStep, this.nextNoteTime, stepDur);
-      this.musicStep = (this.musicStep + 1) % 64;
-      this.nextNoteTime += stepDur;
-    }
-  }
-
-  private playMusicStep(step: number, when: number, stepDur: number): void {
-    // Chord progression: C - Am - F - G (16 steps each), arpeggiated.
-    const chords = [
-      [261.63, 329.63, 392.0, 523.25],
-      [220.0, 261.63, 329.63, 440.0],
-      [174.61, 220.0, 261.63, 349.23],
-      [196.0, 246.94, 293.66, 392.0],
-    ];
-    const bass = [130.81, 110.0, 87.31, 98.0];
-    const chord = chords[Math.floor(step / 16) % 4];
-    const arp = [0, 2, 1, 3, 2, 1, 0, 2, 3, 1, 2, 0, 1, 3, 2, 1];
-    const lead: OscillatorType = this.musicStyle === 'outdoor' ? 'triangle' : 'sine';
-    if (step % 2 === 0) {
-      this.tone(chord[arp[step % 16]], stepDur * 1.6, { type: lead, gain: 0.16, attack: 0.01, decay: 0.08, dest: this.musicGain, when });
-    }
-    if (step % 8 === 0) {
-      this.tone(bass[Math.floor(step / 16) % 4], stepDur * 3.5, { type: 'sine', gain: 0.22, attack: 0.02, decay: 0.1, dest: this.musicGain, when });
-    }
-    if (step % 16 === 8 && this.musicStyle === 'outdoor') {
-      this.tone(chord[3] * 1.5, stepDur * 1.2, { type: 'sine', gain: 0.08, attack: 0.02, dest: this.musicGain, when });
     }
   }
 }
